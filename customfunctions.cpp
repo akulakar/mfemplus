@@ -29,13 +29,14 @@
             int dim = el->GetDim();
 
             mfem::Array<int> eldofs(dof * dim);
-            mfem::Vector eldofdisp(dof * dim);
+            mfem::Array<double> eldofdisp(dof * dim);
 
             fespace->GetElementVDofs(*elnumber, eldofs);
+            int eltype = fespace->GetElementType(*elnumber);
 
             for (int i = 0; i < eldofdisp.Size(); i++){
                 int dof = eldofs[i];
-                eldofdisp(i) = disp(dof);
+                eldofdisp[i] = disp(dof);
             }
 
             mfem::real_t w, E, NU;
@@ -90,7 +91,8 @@
 
             mfem::Vector temp(elstrain.Size()); temp = 0.0;
             B.Mult(eldofdisp,temp);
-            elstrain.Add(1/(ir->GetNPoints()),temp);
+            double w = 1.0/(ir->GetNPoints());
+            elstrain.Add(w,temp);
         }
     };
 
@@ -98,9 +100,13 @@
                                                         mfem::Coefficient &nu, mfem::Vector &elstress){
 
             mfem::DenseMatrix C; // Stiffness in Voigt notation.
-            C.SetSize(6, 6);
+            C.SetSize(6, 6); 
+            C = 0.0;
             elastic_mod = &e;
             poisson_ratio = &nu;
+
+            elstress.SetSize(6);
+            elstress = 0.0;
 
             const mfem::IntegrationRule *ir = GetIntegrationRule(*el, *Tr);
             if (ir == NULL)
@@ -109,31 +115,32 @@
                 ir = &mfem::IntRules.Get(el->GetGeomType(), order);
             }
 
-                mfem::real_t NU, E;
+            mfem::real_t NU, E;
+            mfem::DenseMatrix Ctemp;
+            Ctemp.SetSize(6,6);
+            double w = 1.0/ir->GetNPoints();
+        
+            for (int i = 0; i < ir->GetNPoints(); i++)
+            {
                 NU = E = 0;
+                Ctemp = 0.0;
+                const mfem::IntegrationPoint &ip = ir->IntPoint(i);
 
-                for (int i = 0; i < ir->GetNPoints(); i++)
-                {
-                    const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+                Tr->SetIntPoint(&ip);
 
-                    Tr->SetIntPoint(&ip);
+                mfem::real_t NU_temp, E_temp;
+            
+                NU = poisson_ratio->Eval(*Tr, ip);
+                E = elastic_mod->Eval(*Tr, ip); // The elastic constants are evaluated at each integration point.
 
-                    mfem::real_t NU_temp, E_temp;
-                
-                    NU_temp = poisson_ratio->Eval(*Tr, ip);
-                    E_temp = elastic_mod->Eval(*Tr, ip); // The elastic constants are evaluated at each integration point.
+                Ctemp(0, 0) = Ctemp(1, 1) = Ctemp(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                Ctemp(0, 1) = Ctemp(0, 2) = Ctemp(1, 0) = Ctemp(1, 2) = Ctemp(2, 0) = Ctemp(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                Ctemp(3, 3) = Ctemp(4, 4) = Ctemp(5, 5) =  E / (2 * (1 + NU));
 
-                    NU += (1/ir->GetNPoints()) * NU_temp;
-                    E += (1/ir->GetNPoints()) * E_temp;
-                };
-
-                C = 0.0;
-
-                C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
-                C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
-                C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
-
-                C.Mult(elstrain, elstress);
+                C.Add(w, Ctemp);
+            };
+            
+            C.Mult(elstrain, elstress);
         };
 
         void ElementStressStrain::ComputeElementStress(mfem::Vector &elstrain, mfem::MatrixCoefficient &Cmat, 
@@ -149,6 +156,8 @@
                 int order = 2 * Tr->OrderGrad(el); // correct order?
                 ir = &mfem::IntRules.Get(el->GetGeomType(), order);
             }
+
+            double w = 1.0/ir->GetNPoints();
             for (int i = 0; i < ir->GetNPoints(); i++)
             {
                     const mfem::IntegrationPoint &ip = ir->IntPoint(i);
@@ -158,10 +167,10 @@
                     mfem::DenseMatrix C_temp;
                     elastic_constants->Eval(C_temp, *Tr, ip);
 
-                    C.Add(1/(ir->GetNPoints()), C_temp);
+                    C.Add(w, C_temp);
             }
             
-                C.Mult(elstrain, elstress);
+            C.Mult(elstrain, elstress);
         };
 
         void ElementStressStrain::ComputeBoundaryElementArea(mfem::real_t &area){
@@ -254,14 +263,10 @@
                 ElementStressStrain Element(*fel, *Tr, elnum, fespace);
                 Element.ComputeElementStress(elstrain, e, nu, elstress);
 
-                // elstrain.SetSize(6);
-                // elstrain = 1;
-
                 for (int comp = 0; comp < str_comp; comp++)
                     stress(elnum + (numels * comp)) = elstress(comp);
     
             }
-        
         };
 
         void GlobalStressStrain::GlobalStress(mfem::GridFunction &strain,
