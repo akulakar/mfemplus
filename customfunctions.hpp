@@ -28,6 +28,7 @@ namespace mfemplus
         const mfem::FiniteElement *el;
         mfem::ElementTransformation *Tr;
         mfem::FiniteElementSpace *fespace;
+        mfem::ParFiniteElementSpace *parfespace;
         const int *elnumber;
 
     private:
@@ -45,13 +46,26 @@ namespace mfemplus
             fespace = fes;
         }
 
+        ElementStressStrain(const mfem::FiniteElement &element, mfem::ElementTransformation &Trans,
+                            const int &elnum, mfem::ParFiniteElementSpace *parfes)
+        {
+            el = &element;
+            Tr = &Trans;
+            elnumber = &elnum;
+            parfespace = parfes;
+        }
+
         ElementStressStrain(const mfem::FiniteElement &element, mfem::ElementTransformation &Trans)
         {
             el = &element;
             Tr = &Trans;
         }
 
+        // strain calculation with GridFunction.
         void ComputeElementStrain(mfem::GridFunction &disp, mfem::Vector &elstrain);
+
+        // strain calculation with ParGridFunction
+        void ComputeElementStrain(mfem::ParGridFunction &disp, mfem::Vector &elstrain);
 
         void ComputeElementStress(mfem::Vector &elstrain, mfem::Coefficient &e,
                                   mfem::Coefficient &nu, mfem::Vector &elstress);
@@ -68,6 +82,8 @@ namespace mfemplus
     protected:
         mfem::Mesh *mesh;
         mfem::FiniteElementSpace *fespace;
+        mfem::ParMesh *pmesh;
+        mfem::ParFiniteElementSpace *parfespace;
 
     private:
     public:
@@ -76,11 +92,29 @@ namespace mfemplus
             mesh = mesh_file;
             fespace = finite_el_space;
         };
+
+        GlobalStressStrain(mfem::ParMesh *parmesh_file, mfem::ParFiniteElementSpace *parfinite_el_space)
+        {
+            pmesh = parmesh_file;
+            parfespace = parfinite_el_space;
+        };
+
+        // Global strain calculation with GridFunction.
         void GlobalStrain(mfem::GridFunction &disp, mfem::GridFunction &strain);
 
+        // Global strain calculation with ParGridFunction.
+        void GlobalStrain(mfem::ParGridFunction &disp, mfem::ParGridFunction &strain);
+
+        // Global stress calculating with GridFunction.
         void GlobalStress(mfem::GridFunction &strain, mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &stress);
 
         void GlobalStress(mfem::GridFunction &strain, mfem::MatrixCoefficient &Cmat, mfem::GridFunction &stress);
+
+        // Global stress calculating with ParGridFunction.
+        void GlobalStress(mfem::ParGridFunction &strain, mfem::Coefficient &e, mfem::Coefficient &nu, mfem::ParGridFunction &stress);
+
+        void GlobalStress(mfem::ParGridFunction &strain, mfem::MatrixCoefficient &Cmat, mfem::ParGridFunction &stress);
+
 
         void Global3DStrainComponents(mfem::GridFunction &strain, mfem::GridFunction &eps11, mfem::GridFunction &eps22,
                                       mfem::GridFunction &eps33, mfem::GridFunction &eps23, mfem::GridFunction &eps13,

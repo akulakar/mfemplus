@@ -96,6 +96,85 @@
         }
     };
 
+    void ElementStressStrain::ComputeElementStrain(mfem::ParGridFunction &disp, mfem::Vector &elstrain)
+        {
+
+            // To recover element strain, we need the B matrix at each integration point multiplied by
+            // the displacement vector at each node in the element. Therefore, the strain varies
+            // within the element if the B matrix is not constant. However, the strain is averaged
+            // within an element.
+
+            int dof = el->GetDof();
+            int dim = el->GetDim();
+
+            mfem::Array<int> eldofs(dof * dim);
+            mfem::Array<double> eldofdisp(dof * dim);
+
+            parfespace->GetElementVDofs(*elnumber, eldofs);
+            int eltype = parfespace->GetElementType(*elnumber);
+
+            for (int i = 0; i < eldofdisp.Size(); i++){
+                int dof = eldofs[i];
+                eldofdisp[i] = disp(dof);
+            }
+
+            mfem::real_t w, E, NU;
+
+            MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
+
+    #ifdef MFEM_THREAD_SAFE
+            DenseMatrix dshape(dof, dim), gshape(dof, dim), pelmat(dof);
+            Vector divshape(dim * dof);
+    #else
+            dshape.SetSize(dof, dim);
+            gshape.SetSize(dof, dim);
+
+    #endif
+
+            elstrain.SetSize(dim * 2);
+            elstrain = 0.0;
+
+            const mfem::IntegrationRule *ir = GetIntegrationRule(*el, *Tr);
+        if (ir == NULL)
+        {
+            int order = 2 * Tr->OrderGrad(el); // correct order?
+            ir = &mfem::IntRules.Get(el->GetGeomType(), order);
+        }
+
+        for (int i = 0; i < ir->GetNPoints(); i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+
+            el->CalcDShape(ip, dshape); // Gradients of the shape functions in the reference element.
+
+            Tr->SetIntPoint(&ip);
+            mfem::Mult(dshape, Tr->InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            // Here we want to use voigt notation to compute the 6 x 1 strain vector.
+
+            mfem::DenseMatrix B(6, dof * dim); // In 3D, we have 6 unique strain components.
+            B = 0.0;
+
+            for (int spf = 0; spf < dof; spf++)
+            {
+                B(0, spf) = gshape(spf, 0);
+                B(1, spf + dof) = gshape(spf, 1);
+                B(2, spf + 2 * dof) = gshape(spf, 2);
+                B(3, spf + dof) = gshape(spf, 2);
+                B(3, spf + 2 * dof) = gshape(spf, 1);
+                B(4, spf) = gshape(spf, 2);
+                B(4, spf + 2 * dof) = gshape(spf, 0);
+                B(5, spf) = gshape(spf, 1);
+                B(5, spf + dof) = gshape(spf, 0);
+            }
+
+            mfem::Vector temp(elstrain.Size()); temp = 0.0;
+            B.Mult(eldofdisp,temp);
+            double w = 1.0/(ir->GetNPoints());
+            elstrain.Add(w,temp);
+        }
+    };
+
         void ElementStressStrain::ComputeElementStress(mfem::Vector &elstrain,  mfem::Coefficient &e, 
                                                         mfem::Coefficient &nu, mfem::Vector &elstress){
 
@@ -233,6 +312,35 @@
             delete L2fespace;
         };
 
+        void GlobalStressStrain::GlobalStrain(mfem::ParGridFunction &disp, mfem::ParGridFunction &strain){
+
+            int numels = parfespace->GetNE();
+            int dim = pmesh->Dimension();
+            // Number of strain components. For 3D, it would be 6.
+            int str_comp = dim * 2;
+
+            // Now start a loop that assembles strain vector element by element, and assembles the grid function.
+            // The zeroth to numels index is \epsilon_{11}, then \epsilon_{22}, \epsilon_{33}, 
+            // \epsilon_{23}, \epsilon_{13}, \epsilon_{12}.
+
+            for (int elnum = 0; elnum < numels; elnum++){
+
+                const mfem::FiniteElement* fel = parfespace->GetFE(elnum);
+                mfem::ElementTransformation* Tr = parfespace->GetElementTransformation(elnum);
+
+                mfem::Vector elstrain;
+                ElementStressStrain Element(*fel, *Tr, elnum, parfespace);
+                Element.ComputeElementStrain(disp, elstrain);
+
+                // elstrain.SetSize(6);
+                // elstrain = 1;
+
+                for (int comp = 0; comp < str_comp; comp++)
+                    strain(elnum + (numels * comp)) = elstrain(comp);
+    
+            }
+        };
+
 
         void GlobalStressStrain::GlobalStress(mfem::GridFunction &strain, mfem::Coefficient &e, 
                                             mfem::Coefficient &nu, mfem::GridFunction &stress){
@@ -304,6 +412,74 @@
                 for (int comp = 0; comp < str_comp; comp++)
                     stress(elnum + (numels * comp)) = elstress(comp);
     
+            }
+        
+        };
+
+        void GlobalStressStrain::GlobalStress(mfem::ParGridFunction &strain, mfem::Coefficient &e, 
+                                            mfem::Coefficient &nu, mfem::ParGridFunction &stress){
+            
+            int numels = parfespace->GetNE();
+            int dim = pmesh->Dimension();
+            // Number of stress components. For 3D, it would be 6.
+            int str_comp = dim * 2;
+    
+            // Now start a loop that assembles stress vector element by element, and assembles the grid function.
+            // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
+            // \sigma_{23}, \sigma_{13}, \sigma_{12}.
+
+            for (int elnum = 0; elnum < numels; elnum++){
+
+                const mfem::FiniteElement* fel = parfespace->GetFE(elnum);
+                mfem::ElementTransformation* Tr = parfespace->GetElementTransformation(elnum);
+                mfem::Vector elstress(str_comp);
+                mfem::Vector elstrain(str_comp);
+
+                for (int comp = 0; comp < str_comp; comp++)
+                    elstrain(comp) = strain(elnum + (numels * comp));
+                
+                ElementStressStrain Element(*fel, *Tr, elnum, fespace);
+                Element.ComputeElementStress(elstrain, e, nu, elstress);
+
+                for (int comp = 0; comp < str_comp; comp++)
+                    stress(elnum + (numels * comp)) = elstress(comp);
+            }
+        };
+
+        void GlobalStressStrain::GlobalStress(mfem::ParGridFunction &strain,
+                                              mfem::MatrixCoefficient &Cmat, mfem::ParGridFunction &stress){
+            
+            int numels = parfespace->GetNE();
+            int dim = pmesh->Dimension();
+
+            // Set up L2 FESpace to obtain one dof per element for each strain component. For 3D, it would be 6.
+            int str_comp = dim * 2;
+
+            stress.SetSize(strain.Size());
+            stress = 0.0;
+
+            // Now start a loop that assembles stress vector element by element, and assembles the grid function.
+            // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
+            // \sigma_{23}, \sigma_{13}, \sigma_{12}.
+
+            for (int elnum = 0; elnum < numels; elnum++){
+
+                const mfem::FiniteElement* fel = parfespace->GetFE(elnum);
+                mfem::ElementTransformation* Tr = parfespace->GetElementTransformation(elnum);
+                mfem::Vector elstress(str_comp);
+                mfem::Vector elstrain(str_comp);
+
+                for (int comp = 0; comp < str_comp; comp++)
+                    elstrain(comp) = strain(elnum + (numels * comp));
+                
+                ElementStressStrain Element(*fel, *Tr, elnum, fespace);
+                Element.ComputeElementStress(elstrain, Cmat, elstress);
+
+                // elstrain.SetSize(6);
+                // elstrain = 1;
+
+                for (int comp = 0; comp < str_comp; comp++)
+                    stress(elnum + (numels * comp)) = elstress(comp);
             }
         
         };
