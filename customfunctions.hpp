@@ -67,9 +67,11 @@ namespace mfemplus
         // strain calculation with ParGridFunction
         void ComputeElementStrain(mfem::ParGridFunction &disp, mfem::Vector &elstrain);
 
+        // stress calculation with E and NU
         void ComputeElementStress(mfem::Vector &elstrain, mfem::Coefficient &e,
                                   mfem::Coefficient &nu, mfem::Vector &elstress);
 
+        // stress calculation with general stiffness matrix
         void ComputeElementStress(mfem::Vector &elstrain, mfem::MatrixCoefficient &Cmat,
                                   mfem::Vector &elstress);
 
@@ -124,8 +126,8 @@ namespace mfemplus
                                       mfem::GridFunction &sig33, mfem::GridFunction &sig23, mfem::GridFunction &sig13,
                                       mfem::GridFunction &sig12);
 
-        // std::vector<std::unique_ptr<mfem::GridFunction>> straincomponents(mfem::GridFunction &strain);
-        // std::vector<std::unique_ptr<mfem::GridFunction>> stresscomponents(mfem::GridFunction &stress);
+        double ComputeBoundaryForce(mfem::GridFunction &stress, int &bdr_attribute, int &component);
+
     };
 }
 
