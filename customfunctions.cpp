@@ -229,16 +229,21 @@
             mfem::DenseMatrix C;  
             
             if (dim == 2)
+            {
                 C.SetSize(3, 3);
+                elstress.SetSize(3);
+            }
             else if (dim == 3)
+            {
                 C.SetSize(6, 6);
- 
+                elstress.SetSize(6);
+            }
+            
             C = 0.0;
+            elstress = 0.0;
+
             elastic_mod = &e;
             poisson_ratio = &nu;
-
-            elstress.SetSize(6);
-            elstress = 0.0;
 
             const mfem::IntegrationRule *ir = GetIntegrationRule(*el, *Tr);
             if (ir == NULL)
@@ -265,11 +270,11 @@
                 NU = poisson_ratio->Eval(*Tr, ip);
                 E = elastic_mod->Eval(*Tr, ip); 
 
-                if (dim == 2)
+                if (dim == 2) // Plane strain.
                 {
                 Ctemp(0, 0) = Ctemp(1, 1) = E / (1 - pow(NU,2));
                 Ctemp(0, 1) = Ctemp(1, 0) = (E * NU) / (1 - pow(NU,2));
-                Ctemp(2, 2  ) =  (E * (1 - NU)) / (2 * (1 - pow(NU,2)));
+                Ctemp(2, 2) =  (E * (1 - NU)) / (2 * (1 - pow(NU,2)));
                 }
                 else if (dim == 3)
                 {
@@ -345,8 +350,14 @@
             int numels = fespace->GetNE();
             int dim = mesh->Dimension();
 
-            // Set up L2 FESpace to obtain one dof per element for each strain component. For 3D, it would be 6.
-            int str_comp = dim * 2;
+            // Set up L2 FESpace to obtain one dof per element for each strain component. 
+            // There are 3 strain components in 2D and 6 in 3D.
+            int str_comp = 3;
+
+            if (dim == 2)
+                str_comp = 3;
+            else if (dim == 3)
+                str_comp = 6;
 
             mfem::L2_FECollection* L2fec;
             mfem::FiniteElementSpace* L2fespace;
@@ -386,8 +397,15 @@
 
             int numels = parfespace->GetNE();
             int dim = pmesh->Dimension();
-            // Number of strain components. For 3D, it would be 6.
-            int str_comp = dim * 2;
+            
+            // Set up L2 FESpace to obtain one dof per element for each strain component. 
+            // There are 3 strain components in 2D and 6 in 3D.
+            int str_comp = 3;
+            
+            if (dim == 2)
+                str_comp = 3;
+            else if (dim == 3)
+                str_comp = 6;
 
             // Now start a loop that assembles strain vector element by element, and assembles the grid function.
             // The zeroth to numels index is \epsilon_{11}, then \epsilon_{22}, \epsilon_{33}, 
@@ -418,8 +436,14 @@
             int numels = fespace->GetNE();
             int dim = mesh->Dimension();
 
-            // Set up L2 FESpace to obtain one dof per element for each strain component. For 3D, it would be 6.
-            int str_comp = dim * 2;
+            // Set up L2 FESpace to obtain one dof per element for each strain component. 
+            // There are 3 strain components in 2D and 6 in 3D.
+            int str_comp = 3;
+            
+            if (dim == 2)
+                str_comp = 3;
+            else if (dim == 3)
+                str_comp = 6;
 
             stress.SetSize(strain.Size());
             stress = 0.0;
@@ -453,8 +477,14 @@
             int numels = fespace->GetNE();
             int dim = mesh->Dimension();
 
-            // Set up L2 FESpace to obtain one dof per element for each strain component. For 3D, it would be 6.
-            int str_comp = dim * 2;
+            // Set up L2 FESpace to obtain one dof per element for each strain component. 
+            // There are 3 strain components in 2D and 6 in 3D.
+            int str_comp = 3;
+            
+            if (dim == 2)
+                str_comp = 3;
+            else if (dim == 3)
+                str_comp = 6;
 
             stress.SetSize(strain.Size());
             stress = 0.0;
@@ -491,8 +521,14 @@
             
             int numels = parfespace->GetNE();
             int dim = pmesh->Dimension();
-            // Number of stress components. For 3D, it would be 6.
-            int str_comp = dim * 2;
+            // Set up L2 FESpace to obtain one dof per element for each strain component. 
+            // There are 3 strain components in 2D and 6 in 3D.
+            int str_comp = 3;
+            
+            if (dim == 2)
+                str_comp = 3;
+            else if (dim == 3)
+                str_comp = 6;
     
             // Now start a loop that assembles stress vector element by element, and assembles the grid function.
             // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
@@ -522,8 +558,14 @@
             int numels = parfespace->GetNE();
             int dim = pmesh->Dimension();
 
-            // Set up L2 FESpace to obtain one dof per element for each strain component. For 3D, it would be 6.
-            int str_comp = dim * 2;
+            // Set up L2 FESpace to obtain one dof per element for each strain component. 
+            // There are 3 strain components in 2D and 6 in 3D.
+            int str_comp = 3;
+            
+            if (dim == 2)
+                str_comp = 3;
+            else if (dim == 3)
+                str_comp = 6;
 
             stress.SetSize(strain.Size());
             stress = 0.0;

@@ -17,7 +17,7 @@ using namespace std;
 namespace mfemplus
 {
 
-    void ThreeDIsotropicElasticityIntegrator::AssembleElementMatrix(
+    void IsotropicElasticityIntegrator::AssembleElementMatrix(
         const mfem::FiniteElement &el, mfem::ElementTransformation &Trans, mfem::DenseMatrix &elmat)
     {
         int dof = el.GetDof();
@@ -59,44 +59,76 @@ namespace mfemplus
             NU = poisson_ratio->Eval(Trans, ip);
             E = young_mod->Eval(Trans, ip); // The elastic constants are evaluated at each integration point.
 
-            mfem::DenseMatrix C; // Stiffness in Voigt notation.
-            C.SetSize(6, 6);
-            C = 0.0;
-
-            C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
-            C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
-            C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
-
-            // Here we want to use voigt notation to speed up the assembly process.
+            // Here we want to use Voigt notation to speed up the assembly process.
             // For this, we need the strain displacement matrix B. The element stiffness can be computed as
-            // \int_{\Omega} B^T C B
+            // \int_{\Omega} B^T C B. In Voigt form, the stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+            // The B matrix as 3 rows in 2D and 6 rowd in 3D.
 
-            mfem::DenseMatrix B(6, dof * dim); // In 3D, we have 6 unique strain components.
-            B = 0.0;
+            mfem::DenseMatrix C; // Stiffness in Voigt form
+            mfem::DenseMatrix B; // Strain displacement matrix
 
-            for (int spf = 0; spf < dof; spf++)
+            if (dim == 2) // Plain strain
             {
-                B(0, spf) = gshape(spf, 0);
-                B(1, spf + dof) = gshape(spf, 1);
-                B(2, spf + 2 * dof) = gshape(spf, 2);
-                B(3, spf + dof) = gshape(spf, 2);
-                B(3, spf + 2 * dof) = gshape(spf, 1);
-                B(4, spf) = gshape(spf, 2);
-                B(4, spf + 2 * dof) = gshape(spf, 0);
-                B(5, spf) = gshape(spf, 1);
-                B(5, spf + dof) = gshape(spf, 0);
+                C.SetSize(3, 3);
+                C = 0.0; 
+
+                C(0, 0) = C(1, 1) = E / (1 - pow(NU,2));
+                C(0, 1) = C(1, 0) = (E * NU) / (1 - pow(NU,2));
+                C(2, 2) =  (E * (1 - NU)) / (2 * (1 - pow(NU,2)));
+
+                B.SetSize(3, dof * dim); // In 2D, we have 3 unique strain components.
+                B = 0.0;
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf) = gshape(spf, 1);
+                    B(2, spf + dof) = gshape(spf, 0);
+                }
+
+                mfem::DenseMatrix CB(3, dof * dim);
+                mfem::DenseMatrix elmat_intpt(dof * dim, dof * dim);
+                mfem::Mult(C, B, CB);              // CB is 3 x (dof * dim)
+                mfem::MultAtB(B, CB, elmat_intpt); // elmat_add is (dof*dim) x (dof*dim)
+                elmat.Add(w, elmat_intpt);
             }
 
-            mfem::DenseMatrix CB(6, dof * dim);
-            mfem::DenseMatrix elmat_intpt(dof * dim, dof * dim);
-            mfem::Mult(C, B, CB);              // CB is 6 x (dof * dim)
-            mfem::MultAtB(B, CB, elmat_intpt); // elmat_add is (dof*dim) x (dof*dim)
+            else if (dim == 3) 
+            {
+                C.SetSize(6, 6);            
+                C = 0.0;
 
-            elmat.Add(w, elmat_intpt);
+                C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
+
+                mfem::DenseMatrix B(6, dof * dim); // In 3D, we have 6 unique strain components.
+                B = 0.0;
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf + 2 * dof) = gshape(spf, 2);
+                    B(3, spf + dof) = gshape(spf, 2);
+                    B(3, spf + 2 * dof) = gshape(spf, 1);
+                    B(4, spf) = gshape(spf, 2);
+                    B(4, spf + 2 * dof) = gshape(spf, 0);
+                    B(5, spf) = gshape(spf, 1);
+                    B(5, spf + dof) = gshape(spf, 0);
+                }
+
+                mfem::DenseMatrix CB(6, dof * dim);
+                mfem::DenseMatrix elmat_intpt(dof * dim, dof * dim);
+                mfem::Mult(C, B, CB);              // CB is 6 x (dof * dim)
+                mfem::MultAtB(B, CB, elmat_intpt); // elmat_add is (dof*dim) x (dof*dim)
+                elmat.Add(w, elmat_intpt);
+            }
         }
     }
 
-    void ThreeDAnisotropicElasticityIntegrator::AssembleElementMatrix(
+    void AnisotropicElasticityIntegrator::AssembleElementMatrix(
         const mfem::FiniteElement &el, mfem::ElementTransformation &Trans, mfem::DenseMatrix &elmat)
     {
         int dof = el.GetDof();
@@ -135,35 +167,59 @@ namespace mfemplus
             w = ip.weight * Trans.Weight();                      // Quadrature weights
             mfem::Mult(dshape, Trans.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
 
+            // Here we want to use Voigt notation to speed up the assembly process.
+            // For this, we need the strain displacement matrix B. The element stiffness can be computed as
+            // \int_{\Omega} B^T C B. In Voigt form, the stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+            // The B matrix as 3 rows in 2D and 6 rowd in 3D.
+
             mfem::DenseMatrix C;
             stiffness->Eval(C, Trans, ip); // The stiffness matrix is evaluated at each integration point.
+            mfem::DenseMatrix B; // Strain displacement matrix
 
-            // Here we want to use voigt notation to speed up the assembly process.
-            // For this, we need the strain displacement matrix B. The element stiffness can be computed as
-            // \int_{\Omega} B^T C B
-
-            mfem::DenseMatrix B(6, dof * dim); // In 3D, we have 6 unique strain components.
-            B = 0.0;
-
-            for (int spf = 0; spf < dof; spf++)
+            if (dim == 2) // Plain strain
             {
-                B(0, spf) = gshape(spf, 0);
-                B(1, spf + dof) = gshape(spf, 1);
-                B(2, spf + 2 * dof) = gshape(spf, 2);
-                B(3, spf + dof) = gshape(spf, 2);
-                B(3, spf + 2 * dof) = gshape(spf, 1);
-                B(4, spf) = gshape(spf, 2);
-                B(4, spf + 2 * dof) = gshape(spf, 0);
-                B(5, spf) = gshape(spf, 1);
-                B(5, spf + dof) = gshape(spf, 0);
+                B.SetSize(3, dof * dim); // In 2D, we have 3 unique strain components.
+                B = 0.0;
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf) = gshape(spf, 1);
+                    B(2, spf + dof) = gshape(spf, 0);
+                }
+
+                mfem::DenseMatrix CB(3, dof * dim);
+                mfem::DenseMatrix elmat_intpt(dof * dim, dof * dim);
+                mfem::Mult(C, B, CB);              // CB is 3 x (dof * dim)
+                mfem::MultAtB(B, CB, elmat_intpt); // elmat_add is (dof*dim) x (dof*dim)
+                elmat.Add(w, elmat_intpt);
             }
 
-            mfem::DenseMatrix CB(6, dof * dim);
-            mfem::DenseMatrix elmat_intpt(dof * dim, dof * dim);
-            mfem::Mult(C, B, CB);              // CB is 6 x (dof * dim)
-            mfem::MultAtB(B, CB, elmat_intpt); // elmat_add is (dof*dim) x (dof*dim)
+            else if (dim == 3) 
+            {
+                B.SetSize(6, dof * dim); // In 3D, we have 6 unique strain components.
+                B = 0.0;
 
-            elmat.Add(w, elmat_intpt);
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf + 2 * dof) = gshape(spf, 2);
+                    B(3, spf + dof) = gshape(spf, 2);
+                    B(3, spf + 2 * dof) = gshape(spf, 1);
+                    B(4, spf) = gshape(spf, 2);
+                    B(4, spf + 2 * dof) = gshape(spf, 0);
+                    B(5, spf) = gshape(spf, 1);
+                    B(5, spf + dof) = gshape(spf, 0);
+                }
+
+                mfem::DenseMatrix CB(6, dof * dim);
+                mfem::DenseMatrix elmat_intpt(dof * dim, dof * dim);
+                mfem::Mult(C, B, CB);              // CB is 6 x (dof * dim)
+                mfem::MultAtB(B, CB, elmat_intpt); // elmat_add is (dof*dim) x (dof*dim)
+                elmat.Add(w, elmat_intpt);
+            }
         }
     }
 

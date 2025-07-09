@@ -21,7 +21,7 @@ namespace mfemplus
           a(u,v) = (\mathrm{C}_{ijkl} u_{k,l} v_{i,j} )
         $$
         This is a 'Vector' integrator, i.e. defined for FE spaces using multiple copies of a scalar FE space. */
-    class ThreeDIsotropicElasticityIntegrator : public mfem::BilinearFormIntegrator
+    class IsotropicElasticityIntegrator : public mfem::BilinearFormIntegrator
     {
         friend class ElasticityComponentIntegrator;
 
@@ -51,12 +51,12 @@ namespace mfemplus
         void SetUpQuadratureSpaceAndCoefficients(const mfem::FiniteElementSpace &fes);
 
     public:
-        ThreeDIsotropicElasticityIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu)
+        IsotropicElasticityIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu)
         {
             young_mod = &e;
             poisson_ratio = &nu;
         }
-        ThreeDIsotropicElasticityIntegrator() {};
+        IsotropicElasticityIntegrator() {};
 
         void AssembleElementMatrix(const mfem::FiniteElement &el,
                                    mfem::ElementTransformation &Tr,
@@ -69,7 +69,7 @@ namespace mfemplus
           a(u,v) = ( \boldsymbol{\epsilon(v)}^T \boldsymbol{B} \boldsymbol{\epsilon(u)} )
         $$
         This is a 'Vector' integrator, i.e. defined for FE spaces using multiple copies of a scalar FE space. */
-    class ThreeDAnisotropicElasticityIntegrator : public mfem::BilinearFormIntegrator
+    class AnisotropicElasticityIntegrator : public mfem::BilinearFormIntegrator
     {
         friend class ElasticityComponentIntegrator;
 
@@ -97,7 +97,7 @@ namespace mfemplus
         void SetUpQuadratureSpaceAndCoefficients(const mfem::FiniteElementSpace &fes);
 
     public:
-        ThreeDAnisotropicElasticityIntegrator(mfem::MatrixCoefficient &CMat)
+        AnisotropicElasticityIntegrator(mfem::MatrixCoefficient &CMat)
         {
             stiffness = &CMat;
         }
