@@ -67,14 +67,28 @@ namespace mfemplus
             mfem::DenseMatrix C; // Stiffness in Voigt form
             mfem::DenseMatrix B; // Strain displacement matrix
 
-            if (dim == 2) // Plain strain
+            if (dim == 2) 
             {
                 C.SetSize(3, 3);
                 C = 0.0; 
+                
+                // Plane strain
 
-                C(0, 0) = C(1, 1) = E / (1 - pow(NU,2));
-                C(0, 1) = C(1, 0) = (E * NU) / (1 - pow(NU,2));
-                C(2, 2) =  (E * (1 - NU)) / (2 * (1 - pow(NU,2)));
+                // C(0, 0) = C(1, 1) = E / (1 - pow(NU,2));
+                // C(0, 1) = C(1, 0) = (E * NU) / (1 - pow(NU,2));
+                // C(2, 2) =  (E * (1 - NU)) / (2 * (1 - pow(NU,2)));
+
+                 // Plane stress
+
+                C(0, 0) = C(1, 1) = (E /(1 - pow(NU,2)));
+                C(0, 1) = C(1, 0) = (E * NU /(1 - pow(NU,2)));
+                C(2, 2) =  (E * (1 - NU)/(2 * (1 - pow(NU,2))));
+
+                // 3D to 2D, but this is improper
+                
+                // C(0, 0) = C(1, 1) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                // C(0, 1) = C(1, 0) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                // C(2, 2) =  E / (2 * (1 + NU));
 
                 B.SetSize(3, dof * dim); // In 2D, we have 3 unique strain components.
                 B = 0.0;

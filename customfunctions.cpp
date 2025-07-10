@@ -270,17 +270,31 @@
                 NU = poisson_ratio->Eval(*Tr, ip);
                 E = elastic_mod->Eval(*Tr, ip); 
 
-                if (dim == 2) // Plane strain.
+                if (dim == 2) 
                 {
-                Ctemp(0, 0) = Ctemp(1, 1) = E / (1 - pow(NU,2));
-                Ctemp(0, 1) = Ctemp(1, 0) = (E * NU) / (1 - pow(NU,2));
-                Ctemp(2, 2) =  (E * (1 - NU)) / (2 * (1 - pow(NU,2)));
+                    // Plane strain
+
+                    // C(0, 0) = C(1, 1) = E / (1 - pow(NU,2));
+                    // C(0, 1) = C(1, 0) = (E * NU) / (1 - pow(NU,2));
+                    // C(2, 2) =  (E * (1 - NU)) / (2 * (1 - pow(NU,2)));
+
+                    // Plane stress
+
+                    C(0, 0) = C(1, 1) = (E /(1 - pow(NU,2)));
+                    C(0, 1) = C(1, 0) = (E * NU /(1 - pow(NU,2)));
+                    C(2, 2) =  (E * (1 - NU)/(2 * (1 - pow(NU,2))));
+
+                    // 3D to 2D, but this is improper
+                    
+                    // C(0, 0) = C(1, 1) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                    // C(0, 1) = C(1, 0) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                    // C(2, 2) =  E / (2 * (1 + NU));
                 }
                 else if (dim == 3)
                 {
-                Ctemp(0, 0) = Ctemp(1, 1) = Ctemp(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
-                Ctemp(0, 1) = Ctemp(0, 2) = Ctemp(1, 0) = Ctemp(1, 2) = Ctemp(2, 0) = Ctemp(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
-                Ctemp(3, 3) = Ctemp(4, 4) = Ctemp(5, 5) =  E / (2 * (1 + NU));
+                    Ctemp(0, 0) = Ctemp(1, 1) = Ctemp(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                    Ctemp(0, 1) = Ctemp(0, 2) = Ctemp(1, 0) = Ctemp(1, 2) = Ctemp(2, 0) = Ctemp(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                    Ctemp(3, 3) = Ctemp(4, 4) = Ctemp(5, 5) =  E / (2 * (1 + NU));
                 }
 
                 C.Add(w, Ctemp);
