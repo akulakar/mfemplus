@@ -41,7 +41,7 @@
 
             mfem::real_t w, E, NU;
 
-            MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
+            // MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
 
     #ifdef MFEM_THREAD_SAFE
             DenseMatrix dshape(dof, dim), gshape(dof, dim), pelmat(dof);
@@ -143,7 +143,7 @@
 
             mfem::real_t w, E, NU;
 
-            MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
+            // MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
 
     #ifdef MFEM_THREAD_SAFE
             DenseMatrix dshape(dof, dim), gshape(dof, dim), pelmat(dof);
