@@ -1,5 +1,24 @@
 # MFEMPLUS
 
-*MFEMPLUS* is a set of cpp files that are extensions to the *MFEM* library. It contains two sets of cpp and hpp files. One is for custom integrators and the other for custom functions, such as computing stresses and strains. 
+*MFEMPLUS* is a set of cpp files that are extensions to the *MFEM* library.
+It contains the following cpp files (with corresponding hpp files):
 
-If you write a new integrator or function and are a contributer, you can push to this repository, ensuring that there are no push conflicts.
+## 1. customintegrators.cpp
+
+Includes the  following integrators:
+- IsotropicElasticity (with elastic constants E and NU)
+- AnisotropicElasticity (with stiffness matrix C)
+
+Elasticity integrators use the B matrix for assembly. Refer Hughes' book for reference.
+
+## 2. customfunctions.cpp
+
+Includes the following classes and functions:
+- ElementStressStrain
+	- ComputeElementStrain
+	- ComputeElementStress
+	- ComputeBoundaryElementArea
+- GlobalStressStrain
+	- GlobalStrain
+	- GlobalStress
+	- ComputeBoundaryForce

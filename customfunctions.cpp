@@ -40,21 +40,11 @@
             }
 
             mfem::real_t w, E, NU;
-
-            // MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
-
-    #ifdef MFEM_THREAD_SAFE
-            DenseMatrix dshape(dof, dim), gshape(dof, dim), pelmat(dof);
-            Vector divshape(dim * dof);
-    #else
+   
             dshape.SetSize(dof, dim);
             gshape.SetSize(dof, dim);
 
-    #endif
-            if (dim == 2)
-                elstrain.SetSize(3);
-            else if (dim == 3)
-                elstrain.SetSize(6);
+            elstrain.SetSize(dim == 2 ? 3 : 6);
             
             elstrain = 0.0;
 
@@ -143,21 +133,7 @@
 
             mfem::real_t w, E, NU;
 
-            // MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
-
-    #ifdef MFEM_THREAD_SAFE
-            DenseMatrix dshape(dof, dim), gshape(dof, dim), pelmat(dof);
-            Vector divshape(dim * dof);
-    #else
-            dshape.SetSize(dof, dim);
-            gshape.SetSize(dof, dim);
-
-    #endif
-            if (dim == 2)
-                elstrain.SetSize(3);
-            else if (dim == 3)
-                elstrain.SetSize(6);
-            elstrain = 0.0;
+            elstrain.SetSize(dim == 2 ? 3 : 6);
 
             const mfem::IntegrationRule *ir = GetIntegrationRule(*el, *Tr);
         if (ir == NULL)
@@ -227,7 +203,7 @@
 
             // Stiffness in Voigt notation. The stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
             mfem::DenseMatrix C;  
-            
+
             if (dim == 2)
             {
                 C.SetSize(3, 3);
@@ -363,29 +339,14 @@
 
             int numels = fespace->GetNE();
             int dim = mesh->Dimension();
-
-            // Set up L2 FESpace to obtain one dof per element for each strain component. 
             // There are 3 strain components in 2D and 6 in 3D.
-            int str_comp = 3;
-
-            if (dim == 2)
-                str_comp = 3;
-            else if (dim == 3)
-                str_comp = 6;
-
-            mfem::L2_FECollection* L2fec;
-            mfem::FiniteElementSpace* L2fespace;
-
-            L2fec = new mfem::L2_FECollection(0, dim);
-            L2fespace = new mfem::FiniteElementSpace(mesh, L2fec, str_comp);
-
-            strain = mfem::GridFunction(L2fespace);
-            strain = 0.0;
+            int str_comp = (dim == 2) ? 3 : (dim == 3) ? 6 : 3;
 
             // Now start a loop that assembles strain vector element by element, and assembles the grid function.
             // The zeroth to numels index is \epsilon_{11}, then \epsilon_{22}, \epsilon_{33}, 
             // \epsilon_{23}, \epsilon_{13}, \epsilon_{12}.
 
+            // Needs openmp pragma here.
             for (int elnum = 0; elnum < numels; elnum++){
 
                 const mfem::FiniteElement* fel = fespace->GetFE(elnum);
@@ -395,36 +356,23 @@
                 ElementStressStrain Element(*fel, *Tr, elnum, fespace);
                 Element.ComputeElementStrain(disp, elstrain);
 
-                // elstrain.SetSize(6);
-                // elstrain = 1;
-
                 for (int comp = 0; comp < str_comp; comp++)
                     strain(elnum + (numels * comp)) = elstrain(comp);
-    
             }
-            
-            delete L2fec;
-            delete L2fespace;
         };
 
         void GlobalStressStrain::GlobalStrain(mfem::ParGridFunction &disp, mfem::ParGridFunction &strain){
 
             int numels = parfespace->GetNE();
             int dim = pmesh->Dimension();
-            
-            // Set up L2 FESpace to obtain one dof per element for each strain component. 
             // There are 3 strain components in 2D and 6 in 3D.
-            int str_comp = 3;
-            
-            if (dim == 2)
-                str_comp = 3;
-            else if (dim == 3)
-                str_comp = 6;
+            int str_comp = (dim == 2) ? 3 : (dim == 3) ? 6 : 3;
 
             // Now start a loop that assembles strain vector element by element, and assembles the grid function.
             // The zeroth to numels index is \epsilon_{11}, then \epsilon_{22}, \epsilon_{33}, 
             // \epsilon_{23}, \epsilon_{13}, \epsilon_{12}.
 
+            // Needs openmp pragma here
             for (int elnum = 0; elnum < numels; elnum++){
 
                 const mfem::FiniteElement* fel = parfespace->GetFE(elnum);
@@ -434,12 +382,8 @@
                 ElementStressStrain Element(*fel, *Tr, elnum, parfespace);
                 Element.ComputeElementStrain(disp, elstrain);
 
-                // elstrain.SetSize(6);
-                // elstrain = 1;
-
                 for (int comp = 0; comp < str_comp; comp++)
                     strain(elnum + (numels * comp)) = elstrain(comp);
-    
             }
         };
 
@@ -449,23 +393,17 @@
             
             int numels = fespace->GetNE();
             int dim = mesh->Dimension();
-
-            // Set up L2 FESpace to obtain one dof per element for each strain component. 
             // There are 3 strain components in 2D and 6 in 3D.
-            int str_comp = 3;
+            int str_comp = (dim == 2) ? 3 : (dim == 3) ? 6 : 3;   
             
-            if (dim == 2)
-                str_comp = 3;
-            else if (dim == 3)
-                str_comp = 6;
-
             stress.SetSize(strain.Size());
             stress = 0.0;
 
             // Now start a loop that assembles stress vector element by element, and assembles the grid function.
             // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
             // \sigma_{23}, \sigma_{13}, \sigma_{12}.
-
+            
+            // Needs openmp pragma here.
             for (int elnum = 0; elnum < numels; elnum++){
 
                 const mfem::FiniteElement* fel = fespace->GetFE(elnum);
@@ -490,15 +428,8 @@
             
             int numels = fespace->GetNE();
             int dim = mesh->Dimension();
-
-            // Set up L2 FESpace to obtain one dof per element for each strain component. 
             // There are 3 strain components in 2D and 6 in 3D.
-            int str_comp = 3;
-            
-            if (dim == 2)
-                str_comp = 3;
-            else if (dim == 3)
-                str_comp = 6;
+            int str_comp = (dim == 2) ? 3 : (dim == 3) ? 6 : 3;
 
             stress.SetSize(strain.Size());
             stress = 0.0;
@@ -507,6 +438,7 @@
             // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
             // \sigma_{23}, \sigma_{13}, \sigma_{12}.
 
+            // Needs openmp pragma here.
             for (int elnum = 0; elnum < numels; elnum++){
 
                 const mfem::FiniteElement* fel = fespace->GetFE(elnum);
@@ -520,12 +452,8 @@
                 ElementStressStrain Element(*fel, *Tr, elnum, fespace);
                 Element.ComputeElementStress(elstrain, Cmat, elstress);
 
-                // elstrain.SetSize(6);
-                // elstrain = 1;
-
                 for (int comp = 0; comp < str_comp; comp++)
                     stress(elnum + (numels * comp)) = elstress(comp);
-    
             }
         
         };
@@ -535,19 +463,14 @@
             
             int numels = parfespace->GetNE();
             int dim = pmesh->Dimension();
-            // Set up L2 FESpace to obtain one dof per element for each strain component. 
             // There are 3 strain components in 2D and 6 in 3D.
-            int str_comp = 3;
-            
-            if (dim == 2)
-                str_comp = 3;
-            else if (dim == 3)
-                str_comp = 6;
+            int str_comp = (dim == 2) ? 3 : (dim == 3) ? 6 : 3;
     
             // Now start a loop that assembles stress vector element by element, and assembles the grid function.
             // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
             // \sigma_{23}, \sigma_{13}, \sigma_{12}.
-
+                                
+            // Needs openmp pragma here.
             for (int elnum = 0; elnum < numels; elnum++){
 
                 const mfem::FiniteElement* fel = parfespace->GetFE(elnum);
@@ -571,15 +494,8 @@
             
             int numels = parfespace->GetNE();
             int dim = pmesh->Dimension();
-
-            // Set up L2 FESpace to obtain one dof per element for each strain component. 
             // There are 3 strain components in 2D and 6 in 3D.
-            int str_comp = 3;
-            
-            if (dim == 2)
-                str_comp = 3;
-            else if (dim == 3)
-                str_comp = 6;
+            int str_comp = (dim == 2) ? 3 : (dim == 3) ? 6 : 3;
 
             stress.SetSize(strain.Size());
             stress = 0.0;
@@ -588,6 +504,7 @@
             // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
             // \sigma_{23}, \sigma_{13}, \sigma_{12}.
 
+            // Needs openmp pragma here.
             for (int elnum = 0; elnum < numels; elnum++){
 
                 const mfem::FiniteElement* fel = parfespace->GetFE(elnum);
@@ -601,77 +518,10 @@
                 ElementStressStrain Element(*fel, *Tr, elnum, fespace);
                 Element.ComputeElementStress(elstrain, Cmat, elstress);
 
-                // elstrain.SetSize(6);
-                // elstrain = 1;
-
                 for (int comp = 0; comp < str_comp; comp++)
                     stress(elnum + (numels * comp)) = elstress(comp);
             }
-        
         };
-
-        void GlobalStressStrain::Global3DStrainComponents(mfem::GridFunction &strain, mfem::GridFunction &eps11, mfem::GridFunction &eps22,
-                                    mfem::GridFunction &eps33, mfem::GridFunction &eps23, mfem::GridFunction &eps13, 
-                                    mfem::GridFunction &eps12){
-
-            mfem::L2_FECollection* L2fec;
-            mfem::FiniteElementSpace* L2fespace;
-
-            int dim = mesh->Dimension();
-
-            L2fec = new mfem::L2_FECollection(0, dim);
-            L2fespace = new mfem::FiniteElementSpace(mesh, L2fec);
-            // auto L2fec = std::make_shared<mfem::L2_FECollection>(0, dim);
-            // auto L2fespace = std::make_shared<mfem::FiniteElementSpace>(mesh, L2fec); // Should do something like this eventually.
-            int NDofs = L2fespace->GetNDofs();
-
-            mfem::GridFunction eps_temp(L2fespace);
-            eps11 = eps22 = eps33 = eps23 = eps13 = eps12 = eps_temp;
-
-            eps11 = eps22 = eps33 = eps23 = eps13 = eps12 = 0.0;
-
-            for (int dof = 0; dof < NDofs; dof++){
-                eps11(dof) = strain(dof);
-                eps22(dof) = strain(dof + 1 * NDofs);
-                eps33(dof) = strain(dof + 2 * NDofs);
-                eps23(dof) = strain(dof + 3 * NDofs)/2; // Engineering shear strain to true shear strain.
-                eps13(dof) = strain(dof + 4 * NDofs)/2; // Engineering shear strain to true shear strain.
-                eps12(dof) = strain(dof + 5 * NDofs)/2; // Engineering shear strain to true shear strain.
-            }
-
-            delete L2fec;
-            delete L2fespace;
-            
-        };
-
-        void GlobalStressStrain::Global3DStressComponents(mfem::GridFunction &stress, mfem::GridFunction &sig11, mfem::GridFunction &sig22,
-                                    mfem::GridFunction &sig33, mfem::GridFunction &sig23, mfem::GridFunction &sig13, 
-                                    mfem::GridFunction &sig12){
-
-        mfem::L2_FECollection* L2fec;
-        mfem::FiniteElementSpace* L2fespace;
-
-        int dim = mesh->Dimension();
-
-        L2fec = new mfem::L2_FECollection(0, dim);
-        L2fespace = new mfem::FiniteElementSpace(mesh, L2fec);
-        int NDofs = L2fespace->GetNDofs();
-
-        mfem::GridFunction sig_temp(L2fespace);
-        sig11 = sig22 = sig33 = sig23 = sig13 = sig12 = sig_temp;
-
-        sig11 = sig22 = sig33 = sig23 = sig13 = sig12 = 0.0;
-
-        for (int dof = 0; dof < NDofs; dof++){
-    
-            sig11(dof) = stress(dof);
-            sig22(dof) = stress(dof + 1 * NDofs);
-            sig33(dof) = stress(dof + 2 * NDofs);
-            sig23(dof) = stress(dof + 3 * NDofs);
-            sig13(dof) = stress(dof + 4 * NDofs);
-            sig12(dof) = stress(dof + 5 * NDofs);
-        }
-        }; 
 
         double GlobalStressStrain::ComputeBoundaryForce(mfem::GridFunction &stress, int &bdr_attribute, int &component)
         {
@@ -699,5 +549,4 @@
             }
             return top_force;
    };
-
-    };
+};

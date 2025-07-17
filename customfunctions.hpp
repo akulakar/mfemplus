@@ -117,17 +117,7 @@ namespace mfemplus
 
         void GlobalStress(mfem::ParGridFunction &strain, mfem::MatrixCoefficient &Cmat, mfem::ParGridFunction &stress);
 
-
-        void Global3DStrainComponents(mfem::GridFunction &strain, mfem::GridFunction &eps11, mfem::GridFunction &eps22,
-                                      mfem::GridFunction &eps33, mfem::GridFunction &eps23, mfem::GridFunction &eps13,
-                                      mfem::GridFunction &eps12);
-
-        void Global3DStressComponents(mfem::GridFunction &stress, mfem::GridFunction &sig11, mfem::GridFunction &sig22,
-                                      mfem::GridFunction &sig33, mfem::GridFunction &sig23, mfem::GridFunction &sig13,
-                                      mfem::GridFunction &sig12);
-
         double ComputeBoundaryForce(mfem::GridFunction &stress, int &bdr_attribute, int &component);
-
     };
 }
 
