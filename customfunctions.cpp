@@ -10,6 +10,7 @@
 
 
     #include "customfunctions.hpp"
+    #include "omp.h"
     #include <cmath>
     #include <algorithm>
     #include <memory>
@@ -346,7 +347,6 @@
             // The zeroth to numels index is \epsilon_{11}, then \epsilon_{22}, \epsilon_{33}, 
             // \epsilon_{23}, \epsilon_{13}, \epsilon_{12}.
 
-            // Needs openmp pragma here.
             for (int elnum = 0; elnum < numels; elnum++){
 
                 const mfem::FiniteElement* fel = fespace->GetFE(elnum);
@@ -372,7 +372,7 @@
             // The zeroth to numels index is \epsilon_{11}, then \epsilon_{22}, \epsilon_{33}, 
             // \epsilon_{23}, \epsilon_{13}, \epsilon_{12}.
 
-            // Needs openmp pragma here
+            #pragma omp parallel for
             for (int elnum = 0; elnum < numels; elnum++){
 
                 const mfem::FiniteElement* fel = parfespace->GetFE(elnum);
@@ -403,7 +403,6 @@
             // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
             // \sigma_{23}, \sigma_{13}, \sigma_{12}.
             
-            // Needs openmp pragma here.
             for (int elnum = 0; elnum < numels; elnum++){
 
                 const mfem::FiniteElement* fel = fespace->GetFE(elnum);
@@ -438,7 +437,6 @@
             // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
             // \sigma_{23}, \sigma_{13}, \sigma_{12}.
 
-            // Needs openmp pragma here.
             for (int elnum = 0; elnum < numels; elnum++){
 
                 const mfem::FiniteElement* fel = fespace->GetFE(elnum);
@@ -470,7 +468,7 @@
             // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
             // \sigma_{23}, \sigma_{13}, \sigma_{12}.
                                 
-            // Needs openmp pragma here.
+            #pragma omp parallel for
             for (int elnum = 0; elnum < numels; elnum++){
 
                 const mfem::FiniteElement* fel = parfespace->GetFE(elnum);
@@ -504,7 +502,7 @@
             // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
             // \sigma_{23}, \sigma_{13}, \sigma_{12}.
 
-            // Needs openmp pragma here.
+            #pragma omp parallel for
             for (int elnum = 0; elnum < numels; elnum++){
 
                 const mfem::FiniteElement* fel = parfespace->GetFE(elnum);

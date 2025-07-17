@@ -12,7 +12,8 @@
 		  "${workspaceFolder}/../mfem/mesh",
 		  "${workspaceFolder}/../metis-5.1.0/include",
 		  "${workspaceFolder}/../hypre/src/hypre/include",
-		  "/opt/homebrew/opt/open-mpi/include"
+		  "/opt/homebrew/opt/open-mpi/include",
+		  "/opt/homebrew/Cellar/libomp/20.1.8/include"
 		],
 		"defines": [],
 		"macFrameworkPath": [],
