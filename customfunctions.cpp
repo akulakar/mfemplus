@@ -133,6 +133,9 @@
             }
 
             mfem::real_t w, E, NU;
+   
+            dshape.SetSize(dof, dim);
+            gshape.SetSize(dof, dim);
 
             elstrain.SetSize(dim == 2 ? 3 : 6);
 
@@ -149,7 +152,7 @@
 
             el->CalcDShape(ip, dshape); // Gradients of the shape functions in the reference element.
 
-            Tr->SetIntPoint(&ip);
+            Tr->SetIntPoint(&ip); 
             mfem::Mult(dshape, Tr->InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
 
            // Here we want to use voigt notation to compute the strain vector. 
@@ -365,13 +368,14 @@
 
             int numels = parfespace->GetNE();
             int dim = pmesh->Dimension();
+            cout << dim << endl;
             // There are 3 strain components in 2D and 6 in 3D.
             int str_comp = (dim == 2) ? 3 : (dim == 3) ? 6 : 3;
 
             // Now start a loop that assembles strain vector element by element, and assembles the grid function.
             // The zeroth to numels index is \epsilon_{11}, then \epsilon_{22}, \epsilon_{33}, 
             // \epsilon_{23}, \epsilon_{13}, \epsilon_{12}.
-
+    
             #pragma omp parallel for
             for (int elnum = 0; elnum < numels; elnum++){
 
@@ -380,13 +384,36 @@
 
                 mfem::Vector elstrain;
                 ElementStressStrain Element(*fel, *Tr, elnum, parfespace);
-                Element.ComputeElementStrain(disp, elstrain);
+                Element.ComputeElementStrain(disp, elstrain);   
 
                 for (int comp = 0; comp < str_comp; comp++)
                     strain(elnum + (numels * comp)) = elstrain(comp);
             }
         };
 
+        void GlobalStressStrain::GlobalStrain(mfem::ParGridFunction &disp, mfem::Array<mfem::ParGridFunction *> strain){
+            int numels = parfespace->GetNE();
+            int dim = pmesh->Dimension();
+            
+            // There are 3 strain components in 2D and 6 in 3D.
+            int str_comp = (dim == 2) ? 3 : (dim == 3) ? 6 : 3;
+            // Now start a loop that assembles strain vector element by element, and assembles the 3 or 6 grid functions.
+            
+            #pragma omp parallel for
+            for (int elnum = 0; elnum < numels; elnum++){
+
+                const mfem::FiniteElement* fel = parfespace->GetFE(elnum);
+                mfem::ElementTransformation* Tr = parfespace->GetElementTransformation(elnum);
+
+                mfem::Vector elstrain;
+                ElementStressStrain Element(*fel, *Tr, elnum, parfespace);
+                Element.ComputeElementStrain(disp, elstrain);   
+
+                for (int comp = 0; comp < str_comp; comp++){
+                    (*(strain[comp]))(elnum) = elstrain(comp);
+                }
+            }
+        };
 
         void GlobalStressStrain::GlobalStress(mfem::GridFunction &strain, mfem::Coefficient &e, 
                                             mfem::Coefficient &nu, mfem::GridFunction &stress){
@@ -518,6 +545,69 @@
 
                 for (int comp = 0; comp < str_comp; comp++)
                     stress(elnum + (numels * comp)) = elstress(comp);
+            }
+        };
+
+        void GlobalStressStrain::GlobalStress(mfem::Array<mfem::ParGridFunction *> strain, mfem::Coefficient &e, 
+                                            mfem::Coefficient &nu, mfem::Array<mfem::ParGridFunction *> stress){
+            
+            int numels = parfespace->GetNE();
+            int dim = pmesh->Dimension();
+            // There are 3 strain components in 2D and 6 in 3D.
+            int str_comp = (dim == 2) ? 3 : (dim == 3) ? 6 : 3;
+    
+            // Now start a loop that assembles stress vector element by element, and assembles the grid function.
+            // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
+            // \sigma_{23}, \sigma_{13}, \sigma_{12}.
+                                
+            #pragma omp parallel for
+            for (int elnum = 0; elnum < numels; elnum++){
+
+                const mfem::FiniteElement* fel = parfespace->GetFE(elnum);
+                mfem::ElementTransformation* Tr = parfespace->GetElementTransformation(elnum);
+                mfem::Vector elstress(str_comp);
+                mfem::Vector elstrain(str_comp);
+
+                for (int comp = 0; comp < str_comp; comp++)
+                    elstrain(comp) = (*(strain[comp]))(elnum);
+                
+                ElementStressStrain Element(*fel, *Tr, elnum, fespace);
+                Element.ComputeElementStress(elstrain, e, nu, elstress);
+
+                for (int comp = 0; comp < str_comp; comp++){
+                    (*(stress[comp]))(elnum) = elstress(comp);
+                }
+            }
+        };
+
+        void GlobalStressStrain::GlobalStress(mfem::Array<mfem::ParGridFunction *> strain, mfem::MatrixCoefficient &Cmat, 
+                                                mfem::Array<mfem::ParGridFunction *> stress){
+            int numels = parfespace->GetNE();
+            int dim = pmesh->Dimension();
+            // There are 3 strain components in 2D and 6 in 3D.
+            int str_comp = (dim == 2) ? 3 : (dim == 3) ? 6 : 3;
+
+            // Now start a loop that assembles stress vector element by element, and assembles the grid function.
+            // The zeroth to numels index is \sigma_{11}, then \sigma_{22}, \sigma_{33}, 
+            // \sigma_{23}, \sigma_{13}, \sigma_{12}.
+
+            #pragma omp parallel for
+            for (int elnum = 0; elnum < numels; elnum++){
+
+                const mfem::FiniteElement* fel = parfespace->GetFE(elnum);
+                mfem::ElementTransformation* Tr = parfespace->GetElementTransformation(elnum);
+                mfem::Vector elstress(str_comp);
+                mfem::Vector elstrain(str_comp);
+
+                for (int comp = 0; comp < str_comp; comp++)
+                    elstrain(comp) = (*(strain[comp]))(elnum);
+                
+                ElementStressStrain Element(*fel, *Tr, elnum, fespace);
+                Element.ComputeElementStress(elstrain, Cmat, elstress);
+
+                for (int comp = 0; comp < str_comp; comp++){
+                    (*(stress[comp]))(elnum) = elstress(comp);
+                }
             }
         };
 
