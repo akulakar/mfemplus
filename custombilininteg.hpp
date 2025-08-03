@@ -23,7 +23,6 @@ namespace mfemplus
         This is a 'Vector' integrator, i.e. defined for FE spaces using multiple copies of a scalar FE space. */
     class IsotropicElasticityIntegrator : public mfem::BilinearFormIntegrator
     {
-        friend class ElasticityComponentIntegrator;
 
     protected:
         mfem::Coefficient *young_mod, *poisson_ratio;
@@ -71,7 +70,6 @@ namespace mfemplus
         This is a 'Vector' integrator, i.e. defined for FE spaces using multiple copies of a scalar FE space. */
     class AnisotropicElasticityIntegrator : public mfem::BilinearFormIntegrator
     {
-        friend class ElasticityComponentIntegrator;
 
     protected:
         mfem::MatrixCoefficient *stiffness;
@@ -106,6 +104,51 @@ namespace mfemplus
                                    mfem::ElementTransformation &Tr,
                                    mfem::DenseMatrix &elmat) override;
     };
+
+    /** Integrator for deviatoric component of isotropic linear elasticity using shear modulus mu. 
+        $$
+          a(u,v) = (\mathrm{C}_{ijkl} u_{k,l} v_{i,j} )
+        $$
+        This is a 'Vector' integrator, i.e. defined for FE spaces using multiple copies of a scalar FE space. */
+    class IsotropicElasticityDeviatoricIntegrator : public mfem::BilinearFormIntegrator
+    {
+
+    protected:
+        mfem::Coefficient *shear_mod;
+
+    private:
+#ifndef MFEM_THREAD_SAFE
+        mfem::Vector shape;
+        mfem::DenseMatrix dshape, gshape;
+#endif
+
+        // PA extension
+
+        const mfem::DofToQuad *maps;        ///< Not owned
+        const mfem::GeometricFactors *geom; ///< Not owned
+        int vdim, ndofs;
+        const mfem::FiniteElementSpace *fespace; ///< Not owned.
+
+        std::unique_ptr<mfem::QuadratureSpace> q_space;
+        /// Coefficients projected onto q_space
+        std::unique_ptr<mfem::CoefficientVector> nu_quad;
+        /// Workspace vector
+        std::unique_ptr<mfem::QuadratureFunction> q_vec;
+
+        /// Set up the quadrature space
+        void SetUpQuadratureSpaceAndCoefficients(const mfem::FiniteElementSpace &fes);
+
+    public:
+        IsotropicElasticityDeviatoricIntegrator(mfem::Coefficient &mu)
+        {
+            shear_mod = &mu;
+        }
+        IsotropicElasticityDeviatoricIntegrator() {};
+
+        void AssembleElementMatrix(const mfem::FiniteElement &el,
+                                  mfem::ElementTransformation &Tr,
+                                   mfem::DenseMatrix &elmat) override;
+        };     
 }
 
 #endif
