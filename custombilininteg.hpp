@@ -60,7 +60,7 @@ namespace mfemplus
         void AssembleElementMatrix(const mfem::FiniteElement &el,
                                    mfem::ElementTransformation &Tr,
                                    mfem::DenseMatrix &elmat) override;
-        };
+    };
 
     /** Integrator for anistotropic linear elasticity using general stiffness tensor. A total of 21 elastic constants need to be prescribed:
         $$
@@ -105,7 +105,7 @@ namespace mfemplus
                                    mfem::DenseMatrix &elmat) override;
     };
 
-    /** Integrator for deviatoric component of isotropic linear elasticity using shear modulus mu. 
+    /** Integrator for deviatoric component of isotropic linear elasticity using shear modulus mu.
         $$
           a(u,v) = (\mathrm{C}_{ijkl} u_{k,l} v_{i,j} )
         $$
@@ -118,7 +118,7 @@ namespace mfemplus
 
     private:
 #ifndef MFEM_THREAD_SAFE
-        mfem::Vector shape;
+        mfem::Vector shape, divshape;
         mfem::DenseMatrix dshape, gshape;
 #endif
 
@@ -146,9 +146,9 @@ namespace mfemplus
         IsotropicElasticityDeviatoricIntegrator() {};
 
         void AssembleElementMatrix(const mfem::FiniteElement &el,
-                                  mfem::ElementTransformation &Tr,
+                                   mfem::ElementTransformation &Tr,
                                    mfem::DenseMatrix &elmat) override;
-        };     
+    };
 }
 
 #endif

@@ -232,7 +232,7 @@ namespace mfemplus
 #else
         dshape.SetSize(dof, dim);
         gshape.SetSize(dof, dim);
-
+        divshape.SetSize(dim * dof);
 #endif
 
         elmat.SetSize(dof * dim);
@@ -283,7 +283,6 @@ namespace mfemplus
                     {
                         B_vol(0, spf + (dimension * dof)) = gshape(spf, dimension);
                         B_vol(1, spf + (dimension * dof)) = gshape(spf, dimension);
-                        B_vol(2, spf + (dimension * dof)) = 0;
                     }
                 }
             }
@@ -299,12 +298,12 @@ namespace mfemplus
                     B(0, spf) = gshape(spf, 0);
                     B(1, spf + dof) = gshape(spf, 1);
                     B(2, spf + 2 * dof) = gshape(spf, 2);
-                    B(3, spf + dof) = gshape(spf, 2);
-                    B(3, spf + 2 * dof) = gshape(spf, 1);
-                    B(4, spf) = gshape(spf, 2);
-                    B(4, spf + 2 * dof) = gshape(spf, 0);
-                    B(5, spf) = gshape(spf, 1);
-                    B(5, spf + dof) = gshape(spf, 0);
+                    B(3, spf + dof) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 2);
+                    B(3, spf + 2 * dof) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 1);
+                    B(4, spf) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 2);
+                    B(4, spf + 2 * dof) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 0);
+                    B(5, spf) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 1);
+                    B(5, spf + dof) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 0);
                 }
                 for (int dimension = 0; dimension < dim; dimension++)
                 {
@@ -313,18 +312,14 @@ namespace mfemplus
                         B_vol(0, spf + (dimension * dof)) = gshape(spf, dimension);
                         B_vol(1, spf + (dimension * dof)) = gshape(spf, dimension);
                         B_vol(2, spf + (dimension * dof)) = gshape(spf, dimension);
-                        B_vol(3, spf + (dimension * dof)) = 0;
-                        B_vol(4, spf + (dimension * dof)) = 0;
-                        B_vol(5, spf + (dimension * dof)) = 0;
                     }
                 }
             }
             mfem::DenseMatrix B_dev(B);
-            B_dev.Add(-1 / dim, B_vol);
-            // B_dev = B;
+            B_dev.Add(-1.0 / dim, B_vol);
             mfem::DenseMatrix elmat_intpt(dof * dim, dof * dim);
-            mfem::MultAtB(B_dev, B_dev, elmat_intpt); // elmat_add is (dof*dim) x (dof*dim)
-            elmat.Add(w * 2 * MU, elmat_intpt);
+            mfem::MultAtB(B_dev, B_dev, elmat_intpt);
+            elmat.Add(w * 2.0 * MU, elmat_intpt);
         }
     }
 }
