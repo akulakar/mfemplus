@@ -71,14 +71,14 @@ namespace mfemplus
             {
                 C = 0.0;
                 // Plane strain
-                // C(0, 0) = C(1, 1) = E / (1 - pow(NU,2));
-                // C(0, 1) = C(1, 0) = (E * NU) / (1 - pow(NU,2));
-                // C(2, 2) =  (E * (1 - NU)) / (2 * (1 - pow(NU,2)));
+                C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
+                C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
+                C(2, 2) = E / (2 * (1 + NU));
 
                 // Plane stress
-                C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
-                C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
-                C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
+                // C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                // C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                // C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
 
                 // 3D to 2D, but this is improper
                 // C(0, 0) = C(1, 1) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
@@ -221,7 +221,7 @@ namespace mfemplus
     {
         int dof = el.GetDof();
         int dim = el.GetDim();
-        int str_comp = (dim == 2) ? 3 : 6;
+        int str_comp = (dim == 2) ? 4 : 6; // Deviatoric strain in 2D has 4 unique components using plane strain assumption, not 3!
         mfem::real_t w, MU;
 
         MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
@@ -265,7 +265,7 @@ namespace mfemplus
             // B_dev IS NOT the same as B. It only constructs the deviatoric part.
             if (dim == 2)
             {
-                // In 2D, we have 3 unique strain components.
+                // In 2D, we are using the plane strain assumption. The deviatoric strain has 4 unique components, not 3!
                 B = 0.0;
                 B_vol = 0.0;
 
@@ -273,8 +273,8 @@ namespace mfemplus
                 {
                     B(0, spf) = gshape(spf, 0);
                     B(1, spf + dof) = gshape(spf, 1);
-                    B(2, spf) = gshape(spf, 1);
-                    B(2, spf + dof) = gshape(spf, 0);
+                    B(3, spf) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 1);
+                    B(3, spf + dof) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 0);
                 }
 
                 for (int dimension = 0; dimension < dim; dimension++)
@@ -283,6 +283,7 @@ namespace mfemplus
                     {
                         B_vol(0, spf + (dimension * dof)) = gshape(spf, dimension);
                         B_vol(1, spf + (dimension * dof)) = gshape(spf, dimension);
+                        B_vol(2, spf + (dimension * dof)) = gshape(spf, dimension);
                     }
                 }
             }
@@ -316,7 +317,7 @@ namespace mfemplus
                 }
             }
             mfem::DenseMatrix B_dev(B);
-            B_dev.Add(-1.0 / dim, B_vol);
+            B_dev.Add(-1.0 / 3, B_vol);
             mfem::DenseMatrix elmat_intpt(dof * dim, dof * dim);
             mfem::MultAtB(B_dev, B_dev, elmat_intpt);
             elmat.Add(w * 2.0 * MU, elmat_intpt);
