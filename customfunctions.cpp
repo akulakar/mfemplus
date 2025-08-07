@@ -555,7 +555,7 @@ namespace mfemplus
         dilatation *= 1.0 / w_sum;
     };
 
-    void ElementStressStrain::ComputeElementDistortion(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &distortion)
+    void ElementStressStrain::ComputeElementRotation(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &rotation)
     {
         AccessMFEMFunctions accessfunc;
         // The  is div(u). We need the B matrix at each integration point multiplied by
@@ -585,8 +585,8 @@ namespace mfemplus
         mfem::real_t w_sum = 0.0;
         mfem::DenseMatrix dshape(dof, dim), gshape(dof, dim);
 
-        distortion.SetSize(dim == 2 ? 1 : 3);
-        distortion = 0.0;
+        rotation.SetSize(dim == 2 ? 1 : 3);
+        rotation = 0.0;
 
         const mfem::IntegrationRule *ir = accessfunc.GetIntegrationRule(*element, *Trans);
         if (ir == NULL)
@@ -635,9 +635,9 @@ namespace mfemplus
             }
             mfem::Vector temp(B.NumRows());
             B.Mult(eldofdisp, temp);
-            add(distortion, w, temp, distortion);
+            add(rotation, w, temp, rotation);
         }
-        distortion *= 1.0 / w_sum;
+        rotation *= 1.0 / w_sum;
     }
 
     //------------------------------------------------------------------------------------------------------------------------------------
@@ -868,7 +868,7 @@ namespace mfemplus
         }
     };
 
-    void GlobalStressStrain::GlobalDistortion(mfem::GridFunction &disp, mfem::GridFunction &distortion)
+    void GlobalStressStrain::GlobalRotation(mfem::GridFunction &disp, mfem::GridFunction &rotation)
     {
         int numels = fespace->GetNE();
         int dim = mesh->Dimension();
@@ -878,11 +878,11 @@ namespace mfemplus
         // #pragma omp parallel for
         for (int elnum = 0; elnum < numels; elnum++)
         {
-            mfem::Vector element_distortion;
+            mfem::Vector element_rotation;
             ElementStressStrain Element;
-            Element.ComputeElementDistortion(disp, elnum, fespace, element_distortion);
+            Element.ComputeElementRotation(disp, elnum, fespace, element_rotation);
             for (int comp = 0; comp < dis_comp; comp++)
-                distortion(elnum + (numels * comp)) = element_distortion(comp);
+                rotation(elnum + (numels * comp)) = element_rotation(comp);
         }
     };
 };

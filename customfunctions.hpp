@@ -54,11 +54,11 @@ namespace mfemplus
 
         void ComputeBoundaryElementArea(mfem::real_t &area, const mfem::FiniteElement *element, mfem::ElementTransformation *Trans);
 
-        // dilatational and distortional strain and stress.
+        // dilatational and rotational strain and stress.
         void ComputeElementDilatation(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::real_t &dilatation);
 
         // strain calculation with ParGridFunction
-        void ComputeElementDistortion(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &distortion);
+        void ComputeElementRotation(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &rotation);
         ~ElementStressStrain() {};
     };
 
@@ -103,7 +103,7 @@ namespace mfemplus
         double ComputeBoundaryForce(mfem::GridFunction &stress, int &bdr_attribute, int &component);
 
         void GlobalDilatation(mfem::GridFunction &disp, mfem::GridFunction &dilatation);
-        void GlobalDistortion(mfem::GridFunction &disp, mfem::GridFunction &distortion);
+        void GlobalRotation(mfem::GridFunction &disp, mfem::GridFunction &rotation);
         ~GlobalStressStrain() {};
     };
 }
