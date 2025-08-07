@@ -552,7 +552,7 @@ namespace mfemplus
             dilatation_temp = temp.Sum();
             dilatation += w * dilatation_temp;
         }
-        dilatation = dilatation / w_sum;
+        dilatation *= 1.0 / w_sum;
     };
 
     void ElementStressStrain::ComputeElementDistortion(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &distortion)
@@ -610,7 +610,7 @@ namespace mfemplus
 
             if (dim == 2)
             {
-                B.SetSize(1, dof * dim); // In 2D, we have 2 dilatational components.
+                B.SetSize(1, dof * dim); // In 2D, we have a rot scalar.
                 B = 0.0;
                 for (int spf = 0; spf < dof; spf++)
                 {
@@ -621,7 +621,7 @@ namespace mfemplus
 
             else if (dim == 3)
             {
-                B.SetSize(3, dof * dim); // In 3D, we have 3 dilatational components.
+                B.SetSize(3, dof * dim); // In 3D, we have a curl vector with 3 components.
                 B = 0.0;
                 for (int spf = 0; spf < dof; spf++)
                 {
