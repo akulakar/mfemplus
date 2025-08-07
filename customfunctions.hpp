@@ -2,9 +2,9 @@
 // Written by members of the Applied Mechanics Lab at Brown university.
 // List of functions are given below.
 // 1. Elasticity
-//      (a) Recover strain tensor for each element using B matrix given a displacement grid function.
-//      (b) Recover stress tensor for each element given strain and constitutive law.
-//
+//      (a) Recover strain vector for each element using B matrix given a displacement grid function.
+//      (b) Recover stress vector for each element given strain and constitutive law.
+//      (c) Recover dilatational strain and stress.
 //------------------------------------------------------------------------------------------------------------
 //------------------------------------------------------------------------------------------------------------
 // 2.
@@ -18,17 +18,16 @@
 
 namespace mfemplus
 {
-
-    class AccessMFEMFunctions : public mfem::BilinearFormIntegrator {
-
-        public: 
-            using mfem::BilinearFormIntegrator::GetIntegrationRule;
-
+    class AccessMFEMFunctions : public mfem::BilinearFormIntegrator
+    {
+    public:
+        using mfem::BilinearFormIntegrator::GetIntegrationRule;
     };
 
-    class ElementStressStrain : public mfem::BilinearFormIntegrator
+    struct ElementStressStrain
     {
-    friend class GlobalStressStrain;
+        friend class GlobalStressStrain;
+
     public:
     protected:
     private:
@@ -39,26 +38,32 @@ namespace mfemplus
         void ComputeElementStrain(mfem::ParGridFunction &disp, int &elnum, mfem::ParFiniteElementSpace *parfes, mfem::Vector &elstrain);
 
         // stress calculation with E and NU
-        void ComputeElementStress(mfem::Vector &elstrain, mfem::Coefficient &e, mfem::Coefficient &nu, 
-        int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &elstress);
+        void ComputeElementStress(mfem::Vector &elstrain, mfem::Coefficient &e, mfem::Coefficient &nu,
+                                  int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &elstress);
 
         // stress calculation with general stiffness matrix
-        void ComputeElementStress(mfem::Vector &elstrain, mfem::MatrixCoefficient &Cmat, 
-        int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &elstress);
+        void ComputeElementStress(mfem::Vector &elstrain, mfem::MatrixCoefficient &Cmat,
+                                  int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &elstress);
 
-        void ComputeElementStress(mfem::Vector &elstrain, mfem::Coefficient &e, mfem::Coefficient &nu, 
-        int &elnum, mfem::ParFiniteElementSpace *parfes, mfem::Vector &elstress);
+        void ComputeElementStress(mfem::Vector &elstrain, mfem::Coefficient &e, mfem::Coefficient &nu,
+                                  int &elnum, mfem::ParFiniteElementSpace *parfes, mfem::Vector &elstress);
 
         // // stress calculation with general stiffness matrix
         void ComputeElementStress(mfem::Vector &elstrain, mfem::MatrixCoefficient &Cmat,
-        int &elnum, mfem::ParFiniteElementSpace *parfes, mfem::Vector &elstress);
+                                  int &elnum, mfem::ParFiniteElementSpace *parfes, mfem::Vector &elstress);
 
         void ComputeBoundaryElementArea(mfem::real_t &area, const mfem::FiniteElement *element, mfem::ElementTransformation *Trans);
+
+        // dilatational and distortional strain and stress.
+        void ComputeDilatationalElementStrain(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::real_t &dilatation);
+
+        // strain calculation with ParGridFunction
+        void ComputeDistortionalElementStrain(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &distortion);
+        ~ElementStressStrain() {};
     };
 
     class GlobalStressStrain
     {
-
     protected:
         mfem::Mesh *mesh;
         mfem::FiniteElementSpace *fespace;
@@ -90,14 +95,17 @@ namespace mfemplus
         void GlobalStress(mfem::GridFunction &strain, mfem::MatrixCoefficient &Cmat, mfem::GridFunction &stress);
 
         // Global stress calculating with ParGridFunction.
-        void GlobalStress(mfem::Array<mfem::ParGridFunction *> strain, mfem::Coefficient &e, 
-                                            mfem::Coefficient &nu, mfem::Array<mfem::ParGridFunction *> stress);
+        void GlobalStress(mfem::Array<mfem::ParGridFunction *> strain, mfem::Coefficient &e,
+                          mfem::Coefficient &nu, mfem::Array<mfem::ParGridFunction *> stress);
 
         void GlobalStress(mfem::Array<mfem::ParGridFunction *> strain, mfem::MatrixCoefficient &Cmat, mfem::Array<mfem::ParGridFunction *> stress);
 
         double ComputeBoundaryForce(mfem::GridFunction &stress, int &bdr_attribute, int &component);
-    };
 
+        void DilatationalGlobalStrain(mfem::GridFunction &disp, mfem::GridFunction &dilatation);
+        void DistortionalGlobalStrain(mfem::GridFunction &disp, mfem::GridFunction &distortion);
+        ~GlobalStressStrain() {};
+    };
 }
 
 #endif
