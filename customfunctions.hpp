@@ -55,10 +55,14 @@ namespace mfemplus
         void ComputeBoundaryElementArea(mfem::real_t &area, const mfem::FiniteElement *element, mfem::ElementTransformation *Trans);
 
         // dilatational and rotational strain and stress.
-        void ComputeElementDilatation(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::real_t &dilatation);
+        void ComputeElementDilatation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::real_t &dilatation);
 
-        // strain calculation with ParGridFunction
-        void ComputeElementRotation(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &rotation);
+        void ComputeElementRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &rotation);
+
+        // dilatational and rotational strain and stress in parallel.
+        void ComputeElementDilatation(mfem::ParGridFunction *disp, int &elnum, mfem::ParFiniteElementSpace *fes, mfem::real_t &dilatation);
+
+        void ComputeElementRotation(mfem::ParGridFunction *disp, int &elnum, mfem::ParFiniteElementSpace *fes, mfem::Vector &rotation);
         ~ElementStressStrain() {};
     };
 
@@ -78,11 +82,11 @@ namespace mfemplus
             fespace = finite_el_space;
         };
 
-        GlobalStressStrain(mfem::ParMesh *parmesh_file, mfem::ParFiniteElementSpace *parfinite_el_space)
-        {
-            pmesh = parmesh_file;
-            parfespace = parfinite_el_space;
-        };
+        // GlobalStressStrain(mfem::ParMesh *parmesh_file, mfem::ParFiniteElementSpace *parfinite_el_space)
+        // {
+        //     pmesh = parmesh_file;
+        //     parfespace = parfinite_el_space;
+        // };
 
         // Global strain calculation with GridFunction.
         void GlobalStrain(mfem::GridFunction &disp, mfem::GridFunction &strain);
@@ -102,8 +106,9 @@ namespace mfemplus
 
         double ComputeBoundaryForce(mfem::GridFunction &stress, int &bdr_attribute, int &component);
 
-        void GlobalDilatation(mfem::GridFunction &disp, mfem::GridFunction &dilatation);
-        void GlobalRotation(mfem::GridFunction &disp, mfem::GridFunction &rotation);
+        // Global dilatation and rotation
+        void GlobalDilatation(mfem::GridFunction *disp, mfem::GridFunction *dilatation);
+        void GlobalRotation(mfem::GridFunction *disp, mfem::GridFunction *rotation);
         ~GlobalStressStrain() {};
     };
 }

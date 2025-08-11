@@ -471,7 +471,7 @@ namespace mfemplus
         }
     };
 
-    void ElementStressStrain::ComputeElementDilatation(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::real_t &dilatation)
+    void ElementStressStrain::ComputeElementDilatation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::real_t &dilatation)
     {
         AccessMFEMFunctions accessfunc;
         // The dilation is div(u). We need the B matrix at each integration point multiplied by
@@ -494,7 +494,7 @@ namespace mfemplus
         for (int i = 0; i < eldofdisp.Size(); i++)
         {
             int dof = eldofs[i];
-            eldofdisp[i] = disp(dof);
+            eldofdisp[i] = (*disp)(dof);
         }
 
         mfem::real_t w;
@@ -555,7 +555,7 @@ namespace mfemplus
         dilatation *= 1.0 / w_sum;
     };
 
-    void ElementStressStrain::ComputeElementRotation(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &rotation)
+    void ElementStressStrain::ComputeElementRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &rotation)
     {
         AccessMFEMFunctions accessfunc;
         // The  is div(u). We need the B matrix at each integration point multiplied by
@@ -578,7 +578,7 @@ namespace mfemplus
         for (int i = 0; i < eldofdisp.Size(); i++)
         {
             int dof = eldofs[i];
-            eldofdisp[i] = disp(dof);
+            eldofdisp[i] = (*disp)(dof);
         }
 
         mfem::real_t w;
@@ -853,7 +853,7 @@ namespace mfemplus
         return top_force;
     };
 
-    void GlobalStressStrain::GlobalDilatation(mfem::GridFunction &disp, mfem::GridFunction &dilatation)
+    void GlobalStressStrain::GlobalDilatation(mfem::GridFunction *disp, mfem::GridFunction *dilatation)
     {
         int numels = fespace->GetNE();
         int dim = mesh->Dimension();
@@ -864,11 +864,11 @@ namespace mfemplus
             mfem::real_t element_dilatation;
             ElementStressStrain Element;
             Element.ComputeElementDilatation(disp, elnum, fespace, element_dilatation);
-            dilatation(elnum) = element_dilatation;
+            (*dilatation)(elnum) = element_dilatation;
         }
     };
 
-    void GlobalStressStrain::GlobalRotation(mfem::GridFunction &disp, mfem::GridFunction &rotation)
+    void GlobalStressStrain::GlobalRotation(mfem::GridFunction *disp, mfem::GridFunction *rotation)
     {
         int numels = fespace->GetNE();
         int dim = mesh->Dimension();
@@ -882,7 +882,40 @@ namespace mfemplus
             ElementStressStrain Element;
             Element.ComputeElementRotation(disp, elnum, fespace, element_rotation);
             for (int comp = 0; comp < dis_comp; comp++)
-                rotation(elnum + (numels * comp)) = element_rotation(comp);
+                (*rotation)(elnum + (numels * comp)) = element_rotation(comp);
         }
     };
+
+    // void GlobalStressStrain::GlobalDilatation(mfem::ParGridFunction *disp, mfem::ParGridFunction *dilatation)
+    // {
+    //     int numels = parfespace->GetNE();
+    //     int dim = mesh->Dimension();
+    //     // There is one measure of dilatation per element.
+    //     // #pragma omp parallel for
+    //     for (int elnum = 0; elnum < numels; elnum++)
+    //     {
+    //         mfem::real_t element_dilatation;
+    //         ElementStressStrain Element;
+    //         Element.ComputeElementDilatation(disp, elnum, parfespace, element_dilatation);
+    //         (*dilatation)(elnum) = element_dilatation;
+    //     }
+    // };
+
+    // void GlobalStressStrain::GlobalRotation(mfem::GridFunction *disp, mfem::GridFunction *rotation)
+    // {
+    //     int numels = fespace->GetNE();
+    //     int dim = mesh->Dimension();
+    //     // In 2D, distortion is a scalar. In 3D, it is a vector with 3 components.
+    //     int dis_comp = (dim == 2) ? 1 : 3;
+
+    //     // #pragma omp parallel for
+    //     for (int elnum = 0; elnum < numels; elnum++)
+    //     {
+    //         mfem::Vector element_rotation;
+    //         ElementStressStrain Element;
+    //         Element.ComputeElementRotation(disp, elnum, fespace, element_rotation);
+    //         for (int comp = 0; comp < dis_comp; comp++)
+    //             (*rotation)(elnum + (numels * comp)) = element_rotation(comp);
+    //     }
+    // };
 };
