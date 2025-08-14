@@ -14,11 +14,6 @@
 
 namespace mfemplus
 {
-    class AccessMFEMFunctions : public mfem::BilinearFormIntegrator
-    {
-    public:
-        using mfem::BilinearFormIntegrator::GetIntegrationRule;
-    };
 
     void ConstructNormalDisplacementConstraintOperator(mfem::FiniteElementSpace *fespace, mfem::Array<int> &constrained_boundary_elements, mfem::SparseMatrix *constraint_operator);
 }

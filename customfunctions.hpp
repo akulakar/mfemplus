@@ -14,12 +14,8 @@
 
 namespace mfemplus
 {
-    class AccessMFEMFunctions : public mfem::BilinearFormIntegrator
-    {
-    public:
-        using mfem::BilinearFormIntegrator::GetIntegrationRule;
-    };
-
+    void AssignAttributes(mfem::Mesh *mesh);
+    // These functions are only examples. Each project should define its own functions of these types.
 }
 
 #endif
