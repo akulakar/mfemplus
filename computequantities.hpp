@@ -48,6 +48,12 @@ namespace mfemplus
         void ComputeElementDilatation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::real_t &dilatation);
 
         void ComputeElementRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &rotation);
+
+        mfem::Vector ComputeElementDisplacementGradients(mfem::DenseMatrix &gshape, mfem::Vector &eldofdisp);
+        void ComputeElementStrainip(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain);
+        void ComputeElementStrainRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &strain, mfem::Vector &rotation);
+        void ComputeElementMaxShearStrainRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &max_shear_strain, mfem::Vector &rotation);
+        void ComputeElementStrainMaxShearStrainRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &strain, mfem::Vector &max_shear_strain, mfem::Vector &rotation);
         ~ElementStressStrain() {};
     };
 
@@ -55,16 +61,17 @@ namespace mfemplus
     {
     protected:
         mfem::Mesh *mesh;
-        mfem::FiniteElementSpace *fespace;
+        mfem::FiniteElementSpace *disp_fespace, *L2_fespace;
         // mfem::ParMesh *pmesh;
         // mfem::ParFiniteElementSpace *parfespace;
 
     private:
     public:
-        GlobalStressStrain(mfem::Mesh *mesh_file, mfem::FiniteElementSpace *finite_el_space)
+        GlobalStressStrain(mfem::Mesh *mesh_file, mfem::FiniteElementSpace *disp_finite_el_space, mfem::FiniteElementSpace *L2_finite_el_space)
         {
             mesh = mesh_file;
-            fespace = finite_el_space;
+            disp_fespace = disp_finite_el_space;
+            L2_fespace = L2_finite_el_space;
         };
         // Global strain calculation with GridFunction.
         void GlobalStrain(mfem::GridFunction &disp, mfem::GridFunction &strain);
@@ -79,10 +86,13 @@ namespace mfemplus
         // Global dilatation and rotation
         void GlobalDilatation(mfem::GridFunction *disp, mfem::GridFunction *dilatation);
         void GlobalRotation(mfem::GridFunction *disp, mfem::GridFunction *rotation);
+
+        void GlobalStrainip(mfem::GridFunction &disp, mfem::GridFunction &strain);
+
+        void GlobalStrainRotation(mfem::GridFunction *disp, mfem::GridFunction *strain, mfem::GridFunction *rotation);
+        void GlobalMaxShearStrainRotation(mfem::GridFunction *disp, mfem::GridFunction *max_strain, mfem::GridFunction *rotation);
         ~GlobalStressStrain() {};
     };
-
-    void ConstructNormalDisplacementConstraintOperator(mfem::FiniteElementSpace *fespace, mfem::Array<int> &constrained_boundary_elements, mfem::SparseMatrix *constraint_operator);
 }
 
 #endif

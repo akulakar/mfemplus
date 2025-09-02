@@ -14,8 +14,9 @@
 
 namespace mfemplus
 {
+    void NormalDisplacementConstraintOperatorCircle(mfem::Mesh *mesh, mfem::FiniteElementSpace *fespace, mfem::Array<int> &constrained_nodes, mfem::SparseMatrix *constraint_operator);
 
-    void ConstructNormalDisplacementConstraintOperator(mfem::FiniteElementSpace *fespace, mfem::Array<int> &constrained_boundary_elements, mfem::SparseMatrix *constraint_operator);
+    void NormalDisplacementConstraintOperatorLine(mfem::Mesh *mesh, mfem::FiniteElementSpace *fespace, mfem::Array<int> &constrained_nodes, double &slope, double &intersection, mfem::SparseMatrix *constraint_operator, mfem::Vector &rhs_vector);
 }
 
 #endif
