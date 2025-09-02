@@ -10,7 +10,7 @@
 //------------------------------------------------------------------------------------------------------------
 
 #include "computequantities.hpp"
-#include "omp.h"
+// #include "omp.h"
 #include <cmath>
 #include <algorithm>
 #include <memory>

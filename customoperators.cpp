@@ -6,7 +6,7 @@
 //------------------------------------------------------------------------------------------------------------
 
 #include "customoperators.hpp"
-#include "omp.h"
+// #include "omp.h"
 #include <cmath>
 #include <algorithm>
 #include <memory>
