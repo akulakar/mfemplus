@@ -48,6 +48,7 @@ namespace mfemplus
         void ComputeElementDilatation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::real_t &dilatation);
 
         void ComputeElementRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &rotation);
+        void ComputeElementRotationip(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &rotation);
 
         mfem::Vector ComputeElementDisplacementGradients(mfem::DenseMatrix &gshape, mfem::Vector &eldofdisp);
         void ComputeElementStrainip(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain);
@@ -86,7 +87,7 @@ namespace mfemplus
         // Global dilatation and rotation
         void GlobalDilatation(mfem::GridFunction *disp, mfem::GridFunction *dilatation);
         void GlobalRotation(mfem::GridFunction *disp, mfem::GridFunction *rotation);
-
+        void GlobalRotationip(mfem::GridFunction &disp, mfem::GridFunction &rotation);
         void GlobalStrainip(mfem::GridFunction &disp, mfem::GridFunction &strain);
 
         void GlobalStrainRotation(mfem::GridFunction *disp, mfem::GridFunction *strain, mfem::GridFunction *rotation);

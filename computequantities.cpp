@@ -536,6 +536,64 @@ namespace mfemplus
         }
     };
 
+    void ElementStressStrain::ComputeElementRotationip(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &el_rotation)
+    {
+        AccessMFEMFunctions accessfunc;
+        const mfem::FiniteElement *disp_element = disp_fes->GetFE(elnum);
+        const mfem::FiniteElement *L2_element = L2_fes->GetFE(elnum);
+
+        mfem::ElementTransformation *Trans = disp_fes->GetElementTransformation(elnum);
+
+        int dof = disp_element->GetDof();
+        int dim = disp_element->GetDim();
+
+        mfem::Array<int> eldofs(dof * dim);
+        mfem::Vector eldofdisp(dof * dim);
+
+        disp_fes->GetElementVDofs(elnum, eldofs);
+        int eltype = disp_fes->GetElementType(elnum);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            int dof = eldofs[i];
+            eldofdisp(i) = (disp)(dof);
+        }
+
+        mfem::DenseMatrix dshape(dof, dim), gshape(dof, dim);
+
+        mfem::Vector ip_rotation;
+        ip_rotation.SetSize(dim == 2 ? 1 : 3);
+        ip_rotation = 0.0;
+
+        const mfem::IntegrationRule *ir(&(L2_element->GetNodes()));
+        int num_int_points = ir->GetNPoints();
+
+        el_rotation.SetSize(dim == 2 ? (1 * num_int_points) : (3 * num_int_points));
+        el_rotation = 0.0;
+
+        for (int i = 0; i < num_int_points; i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+            disp_element->CalcDShape(ip, dshape); // Gradients of the shape functions in the reference element.
+            Trans->SetIntPoint(&ip);
+            mfem::Mult(dshape, Trans->InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            mfem::Vector disp_gradients(ComputeElementDisplacementGradients(gshape, eldofdisp)); // Compute displacement gradients vector.
+            // Now, sum up the displacement gradients properly to get strain and curl(u) (or rot(u) in 2D).
+            if (dim == 2)
+            {
+                el_rotation(i) = disp_gradients(3) - disp_gradients(2); // u_{2,1} - u_{1,2}
+            }
+
+            if (dim == 3)
+            {
+                el_rotation(i) = 0.5 * (disp_gradients(8) - disp_gradients(6));                      // \frac{1}{2} u_{3,2} - u_{2,3}
+                el_rotation(i + num_int_points) = 0.5 * (disp_gradients(4) - disp_gradients(7));     // \frac{1}{2} - u_{3,1} + u_{1,3}
+                el_rotation(i + 2 * num_int_points) = 0.5 * (disp_gradients(5) - disp_gradients(3)); // \frac{1}{2} u_{2,1} - u_{1,2}
+            }
+        }
+    };
+
     // Function to compute rotation and strain. However, not averaged, but each integration point is a dof in an L2GridFunction.
     void ElementStressStrain::ComputeElementStrainRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &strain, mfem::Vector &rotation)
     {
@@ -657,7 +715,7 @@ namespace mfemplus
                 double eps22 = disp_gradients(1);                             // u_{2,2}
                 double eps12 = 0.5 * (disp_gradients(2) + disp_gradients(3)); // \frac{1}{2} (u_{1,2} + u_{2,1})
 
-                double max_strain_val = pow(pow((eps11 - eps22) / 2.0, 2) + pow(eps12, 2), 0.5);
+                double max_strain_val = sqrt(pow((eps11 - eps22) / 2.0, 2) + pow(eps12, 2));
 
                 max_shear_strain(i) = abs(max_strain_val);
 
@@ -916,6 +974,28 @@ namespace mfemplus
             Element.ComputeElementRotation(disp, elnum, disp_fespace, element_rotation);
             for (int comp = 0; comp < rot_comp; comp++)
                 (*rotation)(elnum + (numels * comp)) = element_rotation(comp);
+        }
+    };
+
+    void GlobalStressStrain::GlobalRotationip(mfem::GridFunction &disp, mfem::GridFunction &rotation)
+    {
+        int numels = disp_fespace->GetNE();
+        int dim = mesh->Dimension();
+        int num_int_points = L2_fespace->GetFE(1)->GetNodes().GetNPoints();
+        // In 2D, rotation is a scalar. In 3D, it is a vector with 3 components.
+        int rot_comp = (dim == 2) ? 1 : 3;
+
+        // #pragma omp parallel for
+        for (int elnum = 0; elnum < numels; elnum++)
+        {
+            mfem::Vector element_rotation;
+            ElementStressStrain Element;
+            Element.ComputeElementRotationip(disp, elnum, disp_fespace, L2_fespace, element_rotation);
+            for (int ip = 0; ip < num_int_points; ip++)
+            {
+                for (int comp = 0; comp < rot_comp; comp++)
+                    (rotation)(num_int_points * elnum + ip + (num_int_points * numels * comp)) = element_rotation(ip + comp * num_int_points);
+            }
         }
     };
 
