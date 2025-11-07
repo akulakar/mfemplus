@@ -49,6 +49,7 @@ namespace mfemplus
 
         void ComputeElementRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &rotation);
         void ComputeElementRotationip(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &rotation);
+        void ComputeElementMaxShearStrainip(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &shearstrain);
 
         mfem::Vector ComputeElementDisplacementGradients(mfem::DenseMatrix &gshape, mfem::Vector &eldofdisp);
         void ComputeElementStrainip(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain);
@@ -89,6 +90,7 @@ namespace mfemplus
         void GlobalRotation(mfem::GridFunction *disp, mfem::GridFunction *rotation);
         void GlobalRotationip(mfem::GridFunction &disp, mfem::GridFunction &rotation);
         void GlobalStrainip(mfem::GridFunction &disp, mfem::GridFunction &strain);
+        void GlobalMaxShearStrainip(mfem::GridFunction &disp, mfem::GridFunction &maxshearstrain);
 
         void GlobalStrainRotation(mfem::GridFunction *disp, mfem::GridFunction *strain, mfem::GridFunction *rotation);
         void GlobalMaxShearStrainRotation(mfem::GridFunction *disp, mfem::GridFunction *max_strain, mfem::GridFunction *rotation);
