@@ -10,7 +10,7 @@
 //------------------------------------------------------------------------------------------------------------
 
 #include "computequantities.hpp"
-// #include "omp.h"
+#include "omp.h"
 #include <cmath>
 #include <algorithm>
 #include <memory>
@@ -654,7 +654,6 @@ namespace mfemplus
 
             if (dim == 3)
             {
-                // This is certainly wrong. Needs to be changed.
                 double eps11 = disp_gradients(0);                             // u_{1,1}
                 double eps22 = disp_gradients(1);                             // u_{2,2}
                 double eps33 = disp_gradients(2);                             // u_{3,3}
@@ -753,6 +752,118 @@ namespace mfemplus
         }
     }
 
+    // Function to compute principal strains, max shear strain and rotation.
+    // Averaged over an element's interior (bubble dofs) using H1 FESpace.
+    void ElementStressStrain::ComputeElementAverageMaxShearPrincipalStrainRotation(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &principal_strains, double &max_shear_strain, mfem::Vector &rotation)
+    {
+        AccessMFEMFunctions accessfunc;
+        const mfem::FiniteElement *disp_element = disp_fes->GetFE(elnum);
+        const mfem::FiniteElement *L2_element = L2_fes->GetFE(elnum);
+
+        mfem::ElementTransformation *Trans = disp_fes->GetElementTransformation(elnum);
+
+        int dof = disp_element->GetDof();
+        int dim = disp_element->GetDim();
+
+        mfem::Array<int> eldofs(dof * dim);
+        mfem::Vector eldofdisp(dof * dim);
+
+        disp_fes->GetElementVDofs(elnum, eldofs);
+        int eltype = disp_fes->GetElementType(elnum);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            int dof = eldofs[i];
+            eldofdisp(i) = disp(dof);
+        }
+
+        mfem::DenseMatrix dshape(dof, dim), gshape(dof, dim);
+
+        const mfem::IntegrationRule *ir(&(L2_element->GetNodes()));
+        int num_int_points = ir->GetNPoints();
+        int num_ave_points = (num_int_points + 2 - 1) / 2; // Notice this is an int division. I want the number to be rounded up.
+
+        // double w = 1.0 / num_int_points; // If using all dofs to calculate average.
+        double w = 1.0 / num_ave_points; // If only using some dofs to calculate average.
+
+        principal_strains.SetSize(dim);     // 2 principal strains in 2D, 3 principal strains in 3D.
+        rotation.SetSize(dim == 2 ? 1 : 3); // Scalar value in 2D, vector with 3 components in 3D.
+        principal_strains = 0.0;
+        rotation = 0.0;
+        max_shear_strain = 0.0; // Single value per element.
+
+        // Principal strains, max shear strain, and rotation will be summed and averaged over the element dofs.
+        for (int i = 0; i < num_int_points; i += 2)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+            disp_element->CalcDShape(ip, dshape); // Gradients of the shape functions in the reference element.
+            Trans->SetIntPoint(&ip);
+            // Recovering the gradients of the shape functions in the physical space, but evaluated at the L2 dofs, not the H1 dofs.
+            mfem::Mult(dshape, Trans->InverseJacobian(), gshape);
+
+            mfem::Vector disp_gradients(ComputeElementDisplacementGradients(gshape, eldofdisp)); // Compute displacement gradients vector.
+            // Now, sum up the displacement gradients properly to get principal strains, max shear strain and curl(u) (or rot(u) in 2D).
+            if (dim == 2)
+            {
+                double eps11 = disp_gradients(0);                             // u_{1,1}
+                double eps22 = disp_gradients(1);                             // u_{2,2}
+                double eps12 = 0.5 * (disp_gradients(2) + disp_gradients(3)); // \frac{1}{2} (u_{1,2} + u_{2,1})
+
+                // Create Eigen matrix and assign strain values.
+                Eigen::Matrix2d eps;
+                eps << eps11, eps12,
+                    eps12, eps22;
+
+                Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> eigensolver(eps, Eigen::EigenvaluesOnly);
+
+                // We want maximum and minimum eigenvalues
+                double prinicipal_strain1 = (eigensolver.eigenvalues())(0); // min
+                double prinicipal_strain2 = (eigensolver.eigenvalues())(1); // max
+
+                principal_strains(0) += w * (eigensolver.eigenvalues())(0); // min
+                principal_strains(1) += w * (eigensolver.eigenvalues())(1); // max
+
+                double max_strain_val = sqrt(pow((eps11 - eps22) / 2.0, 2) + pow(eps12, 2));
+
+                max_shear_strain += w * abs(max_strain_val);
+
+                rotation(0) += w * (disp_gradients(3) - disp_gradients(2)); // u_{2,1} - u_{1,2}
+            }
+
+            if (dim == 3)
+            {
+                double eps11 = disp_gradients(0);                             // u_{1,1}
+                double eps22 = disp_gradients(1);                             // u_{2,2}
+                double eps33 = disp_gradients(2);                             // u_{3,3}
+                double eps23 = 0.5 * (disp_gradients(6) + disp_gradients(8)); // \frac{1}{2} (u_{2,3} + u_{3,2})
+                double eps13 = 0.5 * (disp_gradients(4) + disp_gradients(7)); // \frac{1}{2} (u_{1,3} + u_{3,1})
+                double eps12 = 0.5 * (disp_gradients(3) + disp_gradients(5)); // \frac{1}{2} (u_{1,2} + u_{2,1})
+
+                // Create Eigen matrix and assign strain values.
+                Eigen::Matrix3d eps;
+                eps << eps11, eps12, eps13,
+                    eps12, eps22, eps23,
+                    eps13, eps23, eps33;
+
+                Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> eigensolver(eps, Eigen::EigenvaluesOnly);
+
+                // We want maximum and minimum eigenvalues
+                double prinicipal_strain1 = (eigensolver.eigenvalues())(0); // min
+                double prinicipal_strain2 = (eigensolver.eigenvalues())(2); // max
+
+                principal_strains(0) += w * (eigensolver.eigenvalues())(0); // min
+                principal_strains(1) += w * (eigensolver.eigenvalues())(1); // middle
+                principal_strains(2) += w * (eigensolver.eigenvalues())(2); // max
+
+                max_shear_strain += w * (prinicipal_strain2 - prinicipal_strain1);
+
+                rotation(0) += w * 0.5 * (disp_gradients(8) - disp_gradients(6)); // \frac{1}{2} (u_{3,2} - u_{2,3})
+                rotation(1) += w * 0.5 * (disp_gradients(4) - disp_gradients(7)); // \frac{1}{2} (-u_{3,1} + u_{1,3})
+                rotation(2) += w * 0.5 * (disp_gradients(5) - disp_gradients(3)); // \frac{1}{2} (u_{2,1} - u_{1,2})
+            }
+        }
+    }
+
     void ElementStressStrain::ComputeElementMaxShearStrainRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &max_shear_strain, mfem::Vector &rotation)
     {
         AccessMFEMFunctions accessfunc;
@@ -809,15 +920,27 @@ namespace mfemplus
 
             if (dim == 3)
             {
-                // This is certainly wrong. Needs to be changed.
                 double eps11 = disp_gradients(0);                             // u_{1,1}
                 double eps22 = disp_gradients(1);                             // u_{2,2}
-                double eps12 = 0.5 * (disp_gradients(2) + disp_gradients(3)); // \frac{1}{2} (u_{1,2} + u_{2,1})
+                double eps33 = disp_gradients(2);                             // u_{3,3}
+                double eps23 = 0.5 * (disp_gradients(6) + disp_gradients(8)); // \frac{1}{2} (u_{2,3} + u_{3,2})
+                double eps13 = 0.5 * (disp_gradients(4) + disp_gradients(7)); // \frac{1}{2} (u_{1,3} + u_{3,1})
+                double eps12 = 0.5 * (disp_gradients(3) + disp_gradients(5)); // \frac{1}{2} (u_{1,2} + u_{2,1})
 
-                double max_strain_val = +pow(pow((eps11 - eps22) / 2.0, 2) + pow(eps12, 2), 0.5);
-                double min_strain_val = -pow(pow((eps11 - eps22) / 2.0, 2) + pow(eps12, 2), 0.5);
+                // Create Eigen matrix and assign strain values.
+                Eigen::Matrix3d eps;
+                eps << eps11, eps12, eps13,
+                    eps12, eps22, eps23,
+                    eps13, eps23, eps33;
 
-                max_shear_strain(i) = (abs(max_strain_val) > abs(min_strain_val)) ? max_strain_val : min_strain_val;
+                Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> eigensolver(eps, Eigen::EigenvaluesOnly);
+
+                // We want maximum and minimum eigenvalues
+                double prinicipal_strain1 = (eigensolver.eigenvalues())(0); // min
+                double prinicipal_strain2 = (eigensolver.eigenvalues())(2); // max
+
+                max_shear_strain(i) = prinicipal_strain2 - prinicipal_strain1;
+
                 rotation(i) = 0.5 * (disp_gradients(8) - disp_gradients(6));                      // \frac{1}{2} u_{3,2} - u_{2,3}
                 rotation(i + num_int_points) = 0.5 * (disp_gradients(4) - disp_gradients(7));     // \frac{1}{2} - u_{3,1} + u_{1,3}
                 rotation(i + 2 * num_int_points) = 0.5 * (disp_gradients(5) - disp_gradients(3)); // \frac{1}{2} u_{2,1} - u_{1,2}
@@ -911,6 +1034,12 @@ namespace mfemplus
             }
         }
     };
+    //------------------------------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------------------------------
+    //                              Global quantities are assembled below using the element-wise computations in the above section.
+    //------------------------------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------------------------------
     //------------------------------------------------------------------------------------------------------------------------------------
 
     void GlobalStressStrain::GlobalStrain(mfem::GridFunction &disp, mfem::GridFunction &strain)
@@ -1176,6 +1305,31 @@ namespace mfemplus
             {
                 (maxshearstrain)(num_int_points * elnum + ip) = el_strain(ip);
             }
+        }
+    }
+
+    void GlobalStressStrain::GlobalAverageMaxShearPrincipalStrainRotation(mfem::GridFunction &disp, mfem::GridFunction &principal_strains, mfem::GridFunction &max_shear_strain, mfem::GridFunction &rotation)
+    {
+        int numels = L2_fespace->GetNE();
+        int dim = mesh->Dimension();
+        // In 2D, rotation is a scalar. In 3D, it is a vector with 3 components.
+        int rot_comp = (dim == 2) ? 1 : 3;
+
+        // #pragma omp for
+        for (int elnum = 0; elnum < numels; elnum++)
+        {
+            mfem::Vector el_principal_strains, el_rotation;
+            double max_shear;
+            ElementStressStrain Element;
+            Element.ComputeElementAverageMaxShearPrincipalStrainRotation(disp, elnum, disp_fespace, L2_fespace, el_principal_strains, max_shear, el_rotation);
+
+            for (int comp = 0; comp < dim; comp++)
+                principal_strains(elnum + (numels * comp)) = el_principal_strains(comp);
+
+            max_shear_strain(elnum) = max_shear;
+
+            for (int comp = 0; comp < rot_comp; comp++)
+                rotation(elnum + (numels * comp)) = el_rotation(comp);
         }
     }
 }

@@ -2,6 +2,7 @@
     "[cpp]": {
     "editor.defaultFormatter": "ms-vscode.cpptools",
     "editor.formatOnSave": true,
+    "editor.formatOnSaveMode": "file",
 	"editor.lineHeight": 20,
 },
     "files.associations": {

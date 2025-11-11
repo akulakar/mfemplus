@@ -56,6 +56,8 @@ namespace mfemplus
         void ComputeElementStrainRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &strain, mfem::Vector &rotation);
         void ComputeElementMaxShearStrainRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &max_shear_strain, mfem::Vector &rotation);
         void ComputeElementStrainMaxShearStrainRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &strain, mfem::Vector &max_shear_strain, mfem::Vector &rotation);
+        void ComputeElementAverageMaxShearPrincipalStrainRotation(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &principal_strains, double &max_shear_strain, mfem::Vector &rotation);
+
         ~ElementStressStrain() {};
     };
 
@@ -94,6 +96,7 @@ namespace mfemplus
 
         void GlobalStrainRotation(mfem::GridFunction *disp, mfem::GridFunction *strain, mfem::GridFunction *rotation);
         void GlobalMaxShearStrainRotation(mfem::GridFunction *disp, mfem::GridFunction *max_strain, mfem::GridFunction *rotation);
+        void GlobalAverageMaxShearPrincipalStrainRotation(mfem::GridFunction &disp, mfem::GridFunction &principal_strains, mfem::GridFunction &max_shear_strain, mfem::GridFunction &rotation);
         ~GlobalStressStrain() {};
     };
 }
