@@ -261,7 +261,7 @@ namespace mfemplus
 
             // Here we want to use Voigt notation to speed up the assembly process.
             // For this, we need the strain displacement matrix B. The element stiffness can be computed as
-            // \int_{\Omega} 2 \mu B_dev^T B_dev. The B matrix as 3 rows in 2D and 6 rowd in 3D.
+            // \int_{\Omega} 2 \mu B_dev^T B_dev. The B matrix has 3 rows in 2D and 6 rowd in 3D.
             // B_dev IS NOT the same as B. It only constructs the deviatoric part.
             if (dim == 2)
             {
@@ -273,8 +273,11 @@ namespace mfemplus
                 {
                     B(0, spf) = gshape(spf, 0);
                     B(1, spf + dof) = gshape(spf, 1);
-                    B(3, spf) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 1);
+                    B(3, spf) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 1); // This line's index is 3 for construction of deviatoric strain.
                     B(3, spf + dof) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 0);
+
+                    // There a factor of 1 / sqrt(2) and not 1 / 2 for the shear components because
+                    // in Voigt form the strain vector has coefficients of sqrt(2) for shear strains.
                 }
 
                 for (int dimension = 0; dimension < dim; dimension++)
@@ -305,6 +308,9 @@ namespace mfemplus
                     B(4, spf + 2 * dof) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 0);
                     B(5, spf) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 1);
                     B(5, spf + dof) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 0);
+
+                    // There a factor of 1 / sqrt(2) and not 1 / 2 for the shear components because
+                    // in Voigt form the strain vector has coefficients of sqrt(2) for shear strains.
                 }
                 for (int dimension = 0; dimension < dim; dimension++)
                 {
