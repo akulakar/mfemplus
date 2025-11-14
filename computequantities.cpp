@@ -793,6 +793,7 @@ namespace mfemplus
         max_shear_strain = 0.0; // Single value per element.
 
         // Principal strains, max shear strain, and rotation will be summed and averaged over the element dofs.
+        int count = 0;
         for (int i = 0; i < num_int_points; i += 2)
         {
             const mfem::IntegrationPoint &ip = ir->IntPoint(i);
@@ -820,14 +821,14 @@ namespace mfemplus
                 double prinicipal_strain1 = (eigensolver.eigenvalues())(0); // min
                 double prinicipal_strain2 = (eigensolver.eigenvalues())(1); // max
 
-                principal_strains(0) += w * (eigensolver.eigenvalues())(0); // min
-                principal_strains(1) += w * (eigensolver.eigenvalues())(1); // max
+                principal_strains(0) += (eigensolver.eigenvalues())(0); // min
+                principal_strains(1) += (eigensolver.eigenvalues())(1); // max
 
                 double max_strain_val = sqrt(pow((eps11 - eps22) / 2.0, 2) + pow(eps12, 2));
 
-                max_shear_strain += w * abs(max_strain_val);
+                max_shear_strain += abs(max_strain_val);
 
-                rotation(0) += w * (disp_gradients(3) - disp_gradients(2)); // u_{2,1} - u_{1,2}
+                rotation(0) += (disp_gradients(3) - disp_gradients(2)); // u_{2,1} - u_{1,2}
             }
 
             if (dim == 3)
@@ -851,17 +852,21 @@ namespace mfemplus
                 double prinicipal_strain1 = (eigensolver.eigenvalues())(0); // min
                 double prinicipal_strain2 = (eigensolver.eigenvalues())(2); // max
 
-                principal_strains(0) += w * (eigensolver.eigenvalues())(0); // min
-                principal_strains(1) += w * (eigensolver.eigenvalues())(1); // middle
-                principal_strains(2) += w * (eigensolver.eigenvalues())(2); // max
+                principal_strains(0) += (eigensolver.eigenvalues())(0); // min
+                principal_strains(1) += (eigensolver.eigenvalues())(1); // middle
+                principal_strains(2) += (eigensolver.eigenvalues())(2); // max
 
-                max_shear_strain += w * (prinicipal_strain2 - prinicipal_strain1);
+                max_shear_strain += 0.5 * (prinicipal_strain2 - prinicipal_strain1);
 
-                rotation(0) += w * 0.5 * (disp_gradients(8) - disp_gradients(6)); // \frac{1}{2} (u_{3,2} - u_{2,3})
-                rotation(1) += w * 0.5 * (disp_gradients(4) - disp_gradients(7)); // \frac{1}{2} (-u_{3,1} + u_{1,3})
-                rotation(2) += w * 0.5 * (disp_gradients(5) - disp_gradients(3)); // \frac{1}{2} (u_{2,1} - u_{1,2})
+                rotation(0) += 0.5 * (disp_gradients(8) - disp_gradients(6)); // \frac{1}{2} (u_{3,2} - u_{2,3})
+                rotation(1) += 0.5 * (disp_gradients(4) - disp_gradients(7)); // \frac{1}{2} (-u_{3,1} + u_{1,3})
+                rotation(2) += 0.5 * (disp_gradients(5) - disp_gradients(3)); // \frac{1}{2} (u_{2,1} - u_{1,2})
             }
+            count++;
         }
+        principal_strains *= 1.0 / count;
+        max_shear_strain *= 1.0 / count;
+        rotation *= 1.0 / count;
     }
 
     void ElementStressStrain::ComputeElementMaxShearStrainRotation(mfem::GridFunction *disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &max_shear_strain, mfem::Vector &rotation)
