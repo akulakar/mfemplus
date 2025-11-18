@@ -329,4 +329,166 @@ namespace mfemplus
             elmat.Add(w * 2.0 * MU, elmat_intpt);
         }
     }
+
+    void GLVectorMassIntegrator::AssembleElementMatrix(const mfem::FiniteElement &el, mfem::ElementTransformation &Trans,
+                                                       mfem::DenseMatrix &elmat)
+    {
+        int nd = el.GetDof();
+        int spaceDim = Trans.GetSpaceDim();
+
+        mfem::real_t norm;
+
+        // If vdim is not set, set it to the space dimension
+        vdim = (vdim == -1) ? spaceDim : vdim;
+
+        elmat.SetSize(nd * vdim);
+        shape.SetSize(nd);
+        partelmat.SetSize(nd);
+        if (VQ)
+        {
+            vec.SetSize(vdim);
+        }
+        else if (MQ)
+        {
+            mcoeff.SetSize(vdim);
+        }
+
+        // const mfem::IntegrationRule *ir = GetIntegrationRule(el, Trans);
+        mfem::IntegrationRule ir;
+        if (el.GetGeomType() == mfem::Geometry::CUBE)
+        {
+            mfem::IntegrationRule *ir1D = new mfem::IntegrationRule;
+            mfem::QuadratureFunctions1D::GaussLobatto(el.GetOrder() + 1, ir1D);
+            ir = (mfem::IntegrationRule(*ir1D, *ir1D, *ir1D));
+            delete ir1D;
+        }
+        else if (el.GetGeomType() == mfem::Geometry::SQUARE)
+        {
+            mfem::IntegrationRule *ir1D = new mfem::IntegrationRule;
+            mfem::QuadratureFunctions1D::GaussLobatto(el.GetOrder() + 1, ir1D);
+            ir = (mfem::IntegrationRule(*ir1D, *ir1D));
+            delete ir1D;
+        }
+        else
+        {
+            int order = 2 * el.GetOrder() + Trans.OrderW() + Q_order;
+
+            if (el.Space() == mfem::FunctionSpace::rQk)
+            {
+                ir = mfem::RefinedIntRules.Get(el.GetGeomType(), order);
+            }
+            else
+            {
+                ir = mfem::IntRules.Get(el.GetGeomType(), order);
+            }
+        }
+
+        // const mfem::IntegrationRule *ir(&(el.GetNodes()));
+
+        elmat = 0.0;
+        for (int s = 0; s < ir.GetNPoints(); s++)
+        {
+            const mfem::IntegrationPoint &ip = ir.IntPoint(s);
+            Trans.SetIntPoint(&ip);
+            el.CalcPhysShape(Trans, shape);
+
+            norm = ip.weight * Trans.Weight();
+
+            MultVVt(shape, partelmat);
+
+            if (VQ)
+            {
+                VQ->Eval(vec, Trans, ip);
+                for (int k = 0; k < vdim; k++)
+                {
+                    elmat.AddMatrix(norm * vec(k), partelmat, nd * k, nd * k);
+                }
+            }
+            else if (MQ)
+            {
+                MQ->Eval(mcoeff, Trans, ip);
+                for (int i = 0; i < vdim; i++)
+                    for (int j = 0; j < vdim; j++)
+                    {
+                        elmat.AddMatrix(norm * mcoeff(i, j), partelmat, nd * i, nd * j);
+                    }
+            }
+            else
+            {
+                if (Q)
+                {
+                    norm *= Q->Eval(Trans, ip);
+                }
+                partelmat *= norm;
+                for (int k = 0; k < vdim; k++)
+                {
+                    elmat.AddMatrix(partelmat, nd * k, nd * k);
+                }
+            }
+        }
+    };
+
+    //-----------------------------------------------------------------------------------------------------------------------
+    GLMassIntegrator::GLMassIntegrator(const mfem::IntegrationRule *ir)
+        : mfem::BilinearFormIntegrator(ir), Q(nullptr), maps(nullptr), geom(nullptr)
+    {
+        // static GLMassIntegrator::Kernels kernels;
+    }
+
+    GLMassIntegrator::GLMassIntegrator(mfem::Coefficient &q, const mfem::IntegrationRule *ir)
+        : GLMassIntegrator(ir)
+    {
+        Q = &q;
+    }
+
+    void GLMassIntegrator::AssembleElementMatrix(const mfem::FiniteElement &el, mfem::ElementTransformation &Trans,
+                                                 mfem::DenseMatrix &elmat)
+    {
+        int nd = el.GetDof();
+        // int dim = el.GetDim();
+        mfem::real_t w;
+
+#ifdef MFEM_THREAD_SAFE
+        Vector shape;
+#endif
+        elmat.SetSize(nd);
+        shape.SetSize(nd);
+
+        mfem::IntegrationRule ir;
+        if (el.GetGeomType() == mfem::Geometry::CUBE)
+        {
+            mfem::IntegrationRule *ir1D = new mfem::IntegrationRule;
+            mfem::QuadratureFunctions1D::GaussLobatto(el.GetOrder() + 1, ir1D);
+            ir = (mfem::IntegrationRule(*ir1D, *ir1D, *ir1D));
+            delete ir1D;
+        }
+        else if (el.GetGeomType() == mfem::Geometry::SQUARE)
+        {
+            mfem::IntegrationRule *ir1D = new mfem::IntegrationRule;
+            mfem::QuadratureFunctions1D::GaussLobatto(el.GetOrder() + 1, ir1D);
+            ir = (mfem::IntegrationRule(*ir1D, *ir1D));
+            delete ir1D;
+        }
+        else
+        {
+            const mfem::IntegrationRule ir = *GetIntegrationRule(el, Trans);
+        }
+
+        elmat = 0.0;
+        for (int i = 0; i < ir.GetNPoints(); i++)
+        {
+            const mfem::IntegrationPoint &ip = ir.IntPoint(i);
+            Trans.SetIntPoint(&ip);
+
+            el.CalcPhysShape(Trans, shape);
+
+            w = Trans.Weight() * ip.weight;
+            if (Q)
+            {
+                w *= Q->Eval(Trans, ip);
+            }
+
+            AddMult_a_VVt(w, shape, elmat);
+        }
+    }
 }
