@@ -19,6 +19,49 @@
 using namespace std;
 namespace mfemplus
 {
+    // General function to compute displacement gradients at each integration point.
+    mfem::Vector ElementStressStrain::ComputeElementDisplacementGradients(mfem::DenseMatrix &gshape, mfem::Vector &eldofdisp)
+    {
+        // Arrange the gradients of the shape functions in the B matrix to recover the displacement gradients.
+        // There are 9 displacement gradients in 3D and 4 in 2D.
+
+        int dim = gshape.NumCols();
+        int dof = gshape.NumRows();
+        mfem::DenseMatrix B(dim == 2 ? 4 : 9, dof * dim);
+        mfem::Vector temp(dim == 2 ? 4 : 9);
+
+        if (dim == 2)
+        {
+            B = 0.0;
+            for (int spf = 0; spf < dof; spf++)
+            {
+                B(0, spf) = gshape(spf, 0);       // u_{1,1}
+                B(1, spf + dof) = gshape(spf, 1); // u_{2,2}
+                B(2, spf) = gshape(spf, 1);       // u_{1,2}
+                B(3, spf + dof) = gshape(spf, 0); // u_{2,1}
+            }
+        }
+
+        else if (dim == 3)
+        {
+            B = 0.0;
+            for (int spf = 0; spf < dof; spf++)
+            {
+                B(0, spf) = gshape(spf, 0);           // u_{1,1}
+                B(1, spf + dof) = gshape(spf, 1);     // u_{2,2}
+                B(2, spf + 2 * dof) = gshape(spf, 2); // u_{3,3}
+                B(3, spf) = gshape(spf, 1);           // u_{1,2}
+                B(4, spf) = gshape(spf, 2);           // u_{1,3}
+                B(5, spf + dof) = gshape(spf, 0);     // u_{2,1}
+                B(6, spf + dof) = gshape(spf, 2);     // u_{2,3}
+                B(7, spf + 2 * dof) = gshape(spf, 0); // u_{3,1}
+                B(8, spf + 2 * dof) = gshape(spf, 1); // u_{3,2}
+            }
+        }
+        B.Mult(eldofdisp, temp);
+        return temp;
+    };
+
     void ElementStressStrain::ComputeElementStrain(mfem::GridFunction &disp,
                                                    int &elnum, mfem::FiniteElementSpace *fes, mfem::Vector &elstrain)
     {
@@ -47,7 +90,7 @@ namespace mfemplus
             eldofdisp[i] = disp(dof);
         }
 
-        mfem::real_t w, E, NU;
+        mfem::real_t w;
         mfem::DenseMatrix dshape(dof, dim), gshape(dof, dim);
 
         elstrain.SetSize(dim == 2 ? 3 : 6);
@@ -69,6 +112,173 @@ namespace mfemplus
 
             Trans->SetIntPoint(&ip);
             mfem::Mult(dshape, Trans->InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            // Here we want to use voigt notation to compute the strain vector.
+            // The strain vector has 3 components in 2D and 6 components in 3D.
+            mfem::DenseMatrix B;
+
+            if (dim == 2)
+            {
+                B.SetSize(3, dof * dim); // In 2D, we have 3 unique strain components.
+                B = 0.0;
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf) = gshape(spf, 1);
+                    B(2, spf + dof) = gshape(spf, 0);
+                }
+            }
+
+            else if (dim == 3)
+            {
+                B.SetSize(6, dof * dim); // In 3D, we have 6 unique strain components.
+                B = 0.0;
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf + 2 * dof) = gshape(spf, 2);
+                    B(3, spf + dof) = gshape(spf, 2);
+                    B(3, spf + 2 * dof) = gshape(spf, 1);
+                    B(4, spf) = gshape(spf, 2);
+                    B(4, spf + 2 * dof) = gshape(spf, 0);
+                    B(5, spf) = gshape(spf, 1);
+                    B(5, spf + dof) = gshape(spf, 0);
+                }
+            }
+
+            mfem::Vector temp(elstrain.Size());
+            temp = 0.0;
+            B.Mult(eldofdisp, temp);
+            double w = 1.0 / (ir->GetNPoints());
+            elstrain.Add(w, temp);
+        }
+    };
+
+    void ElementStressStrain::ComputeElementStrain(mfem::GridFunction &disp,
+                                                   int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain)
+    {
+        // To recover element strain, we need the B matrix at each integration point multiplied by
+        // the displacement vector at each node in the element. Therefore, the strain varies
+        // within the element if the B matrix is not constant. However, the strain is averaged
+        // within an element.
+        // Don't shear strains need to be divided by 2??
+
+        AccessMFEMFunctions accessfunc;
+
+        const mfem::FiniteElement *disp_element = disp_fes->GetFE(elnum);
+        const mfem::FiniteElement *L2_element = L2_fes->GetFE(elnum);
+
+        mfem::ElementTransformation *Trans = disp_fes->GetElementTransformation(elnum);
+
+        int dof = disp_element->GetDof();
+        int dim = disp_element->GetDim();
+
+        mfem::Array<int> eldofs(dof * dim);
+        mfem::Vector eldofdisp(dof * dim);
+
+        disp_fes->GetElementVDofs(elnum, eldofs);
+        int eltype = disp_fes->GetElementType(elnum);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            int dof = eldofs[i];
+            eldofdisp(i) = disp(dof);
+        }
+
+        mfem::real_t w;
+        mfem::DenseMatrix dshape(dof, dim), gshape(dof, dim);
+
+        elstrain.SetSize(dim == 2 ? 3 : 6);
+
+        elstrain = 0.0;
+
+        const mfem::IntegrationRule *ir(&(L2_element->GetNodes()));
+        double w = 1.0 / (ir->GetNPoints());
+        int num_int_points = ir->GetNPoints();
+        mfem::Vector temp(elstrain.Size());
+        // elstrain.SetSize(dim == 2 ? (3 * num_int_points) : (6 * num_int_points));
+        for (int i = 0; i < num_int_points; i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+            disp_element->CalcDShape(ip, dshape); // Gradients of the shape functions in the reference element.
+            Trans->SetIntPoint(&ip);
+            mfem::Mult(dshape, Trans->InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            // Here we want to use voigt notation to compute the strain vector.
+            // The strain vector has 3 components in 2D and 6 components in 3D.
+            mfem::Vector disp_gradients(ComputeElementDisplacementGradients(gshape, eldofdisp)); // Compute displacement gradients vector.
+            // Now, sum up the displacement gradients properly to get principal strains, max shear strain and curl(u) (or rot(u) in 2D).
+            if (dim == 2)
+            {
+                temp(0) = disp_gradients(0);                             // u_{1,1}
+                temp(1) = disp_gradients(1);                             // u_{2,2}
+                temp(2) = 0.5 * (disp_gradients(2) + disp_gradients(3)); // \frac{1}{2} (u_{1,2} + u_{2,1})
+            }
+
+            if (dim == 3)
+            {
+                temp(0) = disp_gradients(0);                             // u_{1,1}
+                temp(1) = disp_gradients(1);                             // u_{2,2}
+                temp(2) = disp_gradients(2);                             // u_{3,3}
+                temp(3) = 0.5 * (disp_gradients(6) + disp_gradients(8)); // \frac{1}{2} (u_{2,3} + u_{3,2})
+                temp(4) = 0.5 * (disp_gradients(4) + disp_gradients(7)); // \frac{1}{2} (u_{1,3} + u_{3,1})
+                temp(5) = 0.5 * (disp_gradients(3) + disp_gradients(5)); // \frac{1}{2} (u_{1,2} + u_{2,1})
+            }
+            elstrain.Add(w, temp);
+        }
+    };
+
+    void ElementStressStrain::ComputeBdrElementStrain(mfem::GridFunction &disp,
+                                                      int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain)
+    {
+        // To recover element strain, we need the B matrix at each integration point multiplied by
+        // the displacement vector at each node in the element. Therefore, the strain varies
+        // within the element if the B matrix is not constant. However, the strain is averaged
+        // within an element.
+
+        AccessMFEMFunctions accessfunc;
+
+        const mfem::FiniteElement *disp_bdr_element = disp_fes->GetBE(elnum);
+        const mfem::FiniteElement *L2_bdr_element = L2_fes->GetBE(elnum);
+
+        mfem::ElementTransformation *bdr_Trans = disp_fes->GetBdrElementTransformation(elnum);
+
+        int dof = disp_bdr_element->GetDof();
+        int dim = disp_bdr_element->GetDim();
+
+        mfem::Array<int> eldofs(dof * dim);
+        mfem::Array<double> eldofdisp(dof * dim);
+
+        disp_fes->GetElementVDofs(elnum, eldofs);
+        int eltype = disp_fes->GetElementType(elnum);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            int dof = eldofs[i];
+            eldofdisp[i] = disp(dof);
+        }
+
+        mfem::real_t w;
+        mfem::DenseMatrix dshape(dof, dim), gshape(dof, dim);
+
+        elstrain.SetSize(dim == 2 ? 3 : 6);
+
+        elstrain = 0.0;
+
+        const mfem::IntegrationRule *ir(&(L2_bdr_element->GetNodes()));
+        int num_int_points = ir->GetNPoints();
+
+        elstrain.SetSize(dim == 2 ? (3 * num_int_points) : (6 * num_int_points));
+        for (int i = 0; i < num_int_points; i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+            disp_bdr_element->CalcDShape(ip, dshape); // Gradients of the shape functions in the reference element.
+            bdr_Trans->SetIntPoint(&ip);
+            mfem::Mult(dshape, bdr_Trans->InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
 
             // Here we want to use voigt notation to compute the strain vector.
             // The strain vector has 3 components in 2D and 6 components in 3D.
@@ -236,7 +446,7 @@ namespace mfemplus
         C.Mult(elstrain, elstress);
     };
 
-    void ElementStressStrain::ComputeBoundaryElementArea(mfem::real_t &area, const mfem::FiniteElement *element,
+    void ElementStressStrain::ComputeBoundaryElementArea(double &area, const mfem::FiniteElement *element,
                                                          mfem::ElementTransformation *Trans)
     {
         area = 0.0;
@@ -252,6 +462,674 @@ namespace mfemplus
             Trans->SetIntPoint(&ip);
             w = ip.weight * Trans->Weight(); // Quadrature weights
             area += w;
+        }
+    };
+
+    void ElementStressStrain::ComputeElementStress(mfem::Vector &elstrain, mfem::Coefficient &e, mfem::Coefficient &nu, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstress)
+    {
+        AccessMFEMFunctions accessfunc;
+
+        const mfem::FiniteElement *disp_element = fes->GetFE(elnum);
+        const mfem::FiniteElement *L2_element = L2_fes->GetFE(elnum);
+
+        mfem::ElementTransformation *Trans = fes->GetElementTransformation(elnum);
+        int dim = disp_element->GetDim();
+        // Stiffness in Voigt notation. The stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+        mfem::DenseMatrix C;
+
+        if (dim == 2)
+        {
+            C.SetSize(3, 3);
+            elstress.SetSize(3);
+        }
+        else if (dim == 3)
+        {
+            C.SetSize(6, 6);
+            elstress.SetSize(6);
+        }
+
+        C = 0.0;
+        elstress = 0.0;
+
+        const mfem::IntegrationRule *ir(&(L2_element->GetNodes()));
+        int num_int_points = ir->GetNPoints();
+
+        mfem::real_t NU, E;
+        mfem::DenseMatrix Ctemp;
+        Ctemp.SetSize(C.NumRows(), C.NumCols());
+        double w = 1.0 / ir->GetNPoints();
+
+        for (int i = 0; i < num_int_points; i++)
+        {
+            NU = E = 0;
+            Ctemp = 0.0;
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+
+            Trans->SetIntPoint(&ip);
+
+            // The elastic constants are evaluated at each integration point.
+            mfem::real_t NU_temp, E_temp;
+            NU = nu.Eval(*Trans, ip);
+            E = e.Eval(*Trans, ip);
+
+            if (dim == 2)
+            {
+                // Plane strain
+
+                C(0, 0) = C(1, 1) = E / (1 - pow(NU, 2));
+                C(0, 1) = C(1, 0) = (E * NU) / (1 - pow(NU, 2));
+                C(2, 2) = (E * (1 - NU)) / (2 * (1 - pow(NU, 2)));
+
+                // Plane stress
+
+                // C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                // C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                // C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
+
+                // 3D to 2D, but this is improper
+
+                // C(0, 0) = C(1, 1) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                // C(0, 1) = C(1, 0) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                // C(2, 2) =  E / (2 * (1 + NU));
+            }
+            else if (dim == 3)
+            {
+                Ctemp(0, 0) = Ctemp(1, 1) = Ctemp(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                Ctemp(0, 1) = Ctemp(0, 2) = Ctemp(1, 0) = Ctemp(1, 2) = Ctemp(2, 0) = Ctemp(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                Ctemp(3, 3) = Ctemp(4, 4) = Ctemp(5, 5) = E / (2 * (1 + NU));
+            }
+
+            C.Add(w, Ctemp);
+        };
+
+        C.Mult(elstrain, elstress);
+    };
+
+    void ElementStressStrain::ComputeElementStress(mfem::Vector &elstrain, mfem::MatrixCoefficient &Cmat, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstress)
+    {
+        AccessMFEMFunctions accessfunc;
+
+        const mfem::FiniteElement *disp_element = fes->GetFE(elnum);
+        const mfem::FiniteElement *L2_element = L2_fes->GetFE(elnum);
+
+        mfem::ElementTransformation *Trans = fes->GetElementTransformation(elnum);
+        int dim = disp_element->GetDim();
+        // Stiffness in Voigt notation. The stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+        mfem::DenseMatrix C;
+
+        if (dim == 2)
+            C.SetSize(3, 3);
+        else if (dim == 3)
+            C.SetSize(6, 6);
+
+        const mfem::IntegrationRule *ir(&(L2_element->GetNodes()));
+        int num_int_points = ir->GetNPoints();
+
+        double w = 1.0 / ir->GetNPoints();
+        for (int i = 0; i < ir->GetNPoints(); i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+
+            Trans->SetIntPoint(&ip);
+
+            mfem::DenseMatrix C_temp;
+            Cmat.Eval(C_temp, *Trans, ip);
+
+            C.Add(w, C_temp);
+        }
+        C.Mult(elstrain, elstress);
+    };
+
+    void ElementStressStrain::ComputeBdrElementStress(mfem::Vector &elstrain, mfem::Coefficient &e, mfem::Coefficient &nu, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstress)
+    {
+        AccessMFEMFunctions accessfunc;
+
+        const mfem::FiniteElement *disp_bdr_element = fes->GetBE(elnum);
+        const mfem::FiniteElement *L2_bdr_element = L2_fes->GetBE(elnum);
+
+        mfem::ElementTransformation *bdr_Trans = fes->GetBdrElementTransformation(elnum);
+        int dim = disp_bdr_element->GetDim();
+        // Stiffness in Voigt notation. The stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+        mfem::DenseMatrix C;
+
+        if (dim == 2)
+        {
+            C.SetSize(3, 3);
+            elstress.SetSize(3);
+        }
+        else if (dim == 3)
+        {
+            C.SetSize(6, 6);
+            elstress.SetSize(6);
+        }
+
+        C = 0.0;
+        elstress = 0.0;
+
+        const mfem::IntegrationRule *ir(&(L2_bdr_element->GetNodes()));
+        int num_int_points = ir->GetNPoints();
+
+        mfem::real_t NU, E;
+        mfem::DenseMatrix Ctemp;
+        Ctemp.SetSize(C.NumRows(), C.NumCols());
+        double w = 1.0 / ir->GetNPoints();
+
+        for (int i = 0; i < num_int_points; i++)
+        {
+            NU = E = 0;
+            Ctemp = 0.0;
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+
+            bdr_Trans->SetIntPoint(&ip);
+
+            // The elastic constants are evaluated at each integration point.
+            mfem::real_t NU_temp, E_temp;
+            NU = nu.Eval(*bdr_Trans, ip);
+            E = e.Eval(*bdr_Trans, ip);
+
+            if (dim == 2)
+            {
+                // Plane strain
+
+                C(0, 0) = C(1, 1) = E / (1 - pow(NU, 2));
+                C(0, 1) = C(1, 0) = (E * NU) / (1 - pow(NU, 2));
+                C(2, 2) = (E * (1 - NU)) / (2 * (1 - pow(NU, 2)));
+
+                // Plane stress
+
+                // C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                // C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                // C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
+
+                // 3D to 2D, but this is improper
+
+                // C(0, 0) = C(1, 1) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                // C(0, 1) = C(1, 0) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                // C(2, 2) =  E / (2 * (1 + NU));
+            }
+            else if (dim == 3)
+            {
+                Ctemp(0, 0) = Ctemp(1, 1) = Ctemp(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                Ctemp(0, 1) = Ctemp(0, 2) = Ctemp(1, 0) = Ctemp(1, 2) = Ctemp(2, 0) = Ctemp(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                Ctemp(3, 3) = Ctemp(4, 4) = Ctemp(5, 5) = E / (2 * (1 + NU));
+            }
+
+            C.Add(w, Ctemp);
+        };
+
+        C.Mult(elstrain, elstress);
+    };
+
+    void ElementStressStrain::ComputeBdrElementStress(mfem::Vector &elstrain, mfem::MatrixCoefficient &Cmat, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstress)
+    {
+        AccessMFEMFunctions accessfunc;
+
+        const mfem::FiniteElement *disp_bdr_element = fes->GetBE(elnum);
+        const mfem::FiniteElement *L2_bdr_element = L2_fes->GetBE(elnum);
+
+        mfem::ElementTransformation *bdr_Trans = fes->GetBdrElementTransformation(elnum);
+        int dim = disp_bdr_element->GetDim();
+        // Stiffness in Voigt notation. The stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+        mfem::DenseMatrix C(dim == 2 ? 3 : 6, dim == 2 ? 3 : 6);
+
+        const mfem::IntegrationRule *ir(&(L2_bdr_element->GetNodes()));
+        int num_int_points = ir->GetNPoints();
+
+        double w = 1.0 / ir->GetNPoints();
+        for (int i = 0; i < ir->GetNPoints(); i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+
+            bdr_Trans->SetIntPoint(&ip);
+
+            mfem::DenseMatrix C_temp;
+            Cmat.Eval(C_temp, *bdr_Trans, ip);
+
+            C.Add(w, C_temp);
+        }
+        C.Mult(elstrain, elstress);
+    };
+
+    void ElementStressStrain::ComputeElementStrainStress(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain, mfem::Coefficient &e, mfem::Coefficient &nu, mfem::Vector &elstress)
+    {
+        // To recover element strain, we need the B matrix at each integration point multiplied by
+        // the displacement vector at each node in the element. Therefore, the strain varies
+        // within the element if the B matrix is not constant. However, the strain is averaged
+        // within an element.
+
+        AccessMFEMFunctions accessfunc;
+
+        const mfem::FiniteElement *disp_element = disp_fes->GetFE(elnum);
+        const mfem::FiniteElement *L2_element = L2_fes->GetFE(elnum);
+
+        mfem::ElementTransformation *Trans = disp_fes->GetElementTransformation(elnum);
+
+        int dof = disp_element->GetDof();
+        int dim = disp_element->GetDim();
+
+        mfem::Array<int> eldofs(dof * dim);
+        mfem::Array<double> eldofdisp(dof * dim);
+
+        disp_fes->GetElementVDofs(elnum, eldofs);
+        int eltype = disp_fes->GetElementType(elnum);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            int dof = eldofs[i];
+            eldofdisp[i] = disp(dof);
+        }
+
+        mfem::DenseMatrix dshape(dof, dim), gshape(dof, dim);
+
+        // elstrain.SetSize(dim == 2 ? 3 : 6);
+        elstrain = 0.0;
+
+        // Stiffness in Voigt notation. The stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+        mfem::DenseMatrix C(dim == 2 ? 3 : 6, dim == 2 ? 3 : 6);
+        // elstress.SetSize(dim == 2 ? 3 : 6);
+        C = 0.0;
+        elstress = 0.0;
+        mfem::real_t NU, E;
+
+        const mfem::IntegrationRule *ir(&(L2_element->GetNodes()));
+        int num_int_points = ir->GetNPoints();
+        // elstrain.SetSize(dim == 2 ? (3 * num_int_points) : (6 * num_int_points)); // This has to be wrong??
+        mfem::DenseMatrix B(dim == 2 ? 3 : 6, dof * dim);
+        B = 0.0;
+        double w = 1.0 / (ir->GetNPoints());
+        mfem::Vector strain_temp(elstrain.Size()), stress_temp(elstress.Size());
+        strain_temp = stress_temp = 0.0;
+
+        for (int i = 0; i < num_int_points; i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+            disp_element->CalcDShape(ip, dshape); // Gradients of the shape functions in the reference element.
+            Trans->SetIntPoint(&ip);
+            mfem::Mult(dshape, Trans->InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            // Here we want to use voigt notation to compute the strain vector.
+            // The strain vector has 3 components in 2D and 6 components in 3D.
+
+            // Stress computations
+            NU = nu.Eval(*Trans, ip);
+            E = e.Eval(*Trans, ip);
+            if (dim == 2)
+            {
+                // B.SetSize(3, dof * dim); // In 2D, we have 3 unique strain components.
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf) = gshape(spf, 1);
+                    B(2, spf + dof) = gshape(spf, 0);
+                }
+
+                // Plane strain
+
+                C(0, 0) = C(1, 1) = E / (1 - pow(NU, 2));
+                C(0, 1) = C(1, 0) = (E * NU) / (1 - pow(NU, 2));
+                C(2, 2) = (E * (1 - NU)) / (2 * (1 - pow(NU, 2)));
+
+                // Plane stress
+
+                // C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                // C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                // C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
+            }
+
+            else if (dim == 3)
+            {
+                // B.SetSize(6, dof * dim); // In 3D, we have 6 unique strain components.
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf + 2 * dof) = gshape(spf, 2);
+                    B(3, spf + dof) = gshape(spf, 2);
+                    B(3, spf + 2 * dof) = gshape(spf, 1);
+                    B(4, spf) = gshape(spf, 2);
+                    B(4, spf + 2 * dof) = gshape(spf, 0);
+                    B(5, spf) = gshape(spf, 1);
+                    B(5, spf + dof) = gshape(spf, 0);
+                }
+
+                // 3D elasticity tensor in Voigt notation
+                C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
+            }
+
+            B.Mult(eldofdisp, strain_temp);
+            C.Mult(strain_temp, stress_temp);
+            elstrain.Add(w, strain_temp);
+            elstress.Add(w, stress_temp);
+        }
+    };
+
+    void ElementStressStrain::ComputeElementStrainStress(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain, mfem::MatrixCoefficient &Cmat, mfem::Vector &elstress)
+    {
+        // To recover element strain, we need the B matrix at each integration point multiplied by
+        // the displacement vector at each node in the element. Therefore, the strain varies
+        // within the element if the B matrix is not constant. However, the strain is averaged
+        // within an element.
+
+        AccessMFEMFunctions accessfunc;
+
+        const mfem::FiniteElement *disp_element = disp_fes->GetFE(elnum);
+        const mfem::FiniteElement *L2_element = L2_fes->GetFE(elnum);
+
+        mfem::ElementTransformation *Trans = disp_fes->GetElementTransformation(elnum);
+
+        int dof = disp_element->GetDof();
+        int dim = disp_element->GetDim();
+
+        mfem::Array<int> eldofs(dof * dim);
+        mfem::Array<double> eldofdisp(dof * dim);
+
+        disp_fes->GetElementVDofs(elnum, eldofs);
+        int eltype = disp_fes->GetElementType(elnum);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            int dof = eldofs[i];
+            eldofdisp[i] = disp(dof);
+        }
+
+        mfem::DenseMatrix dshape(dof, dim), gshape(dof, dim);
+
+        elstrain.SetSize(dim == 2 ? 3 : 6);
+        elstrain = 0.0;
+
+        // Stiffness in Voigt notation. The stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+        mfem::DenseMatrix C(dim == 2 ? 3 : 6, dim == 2 ? 3 : 6);
+        elstress.SetSize(dim == 2 ? 3 : 6);
+
+        C = 0.0;
+        elstress = 0.0;
+
+        const mfem::IntegrationRule *ir(&(L2_element->GetNodes()));
+        int num_int_points = ir->GetNPoints();
+        // elstrain.SetSize(dim == 2 ? (3 * num_int_points) : (6 * num_int_points)); // This has to be wrong??
+        mfem::DenseMatrix B(dim == 2 ? 3 : 6, dof * dim);
+        B = 0.0;
+        double w = 1.0 / (ir->GetNPoints());
+        mfem::Vector strain_temp(elstrain.Size()), stress_temp(elstress.Size());
+        strain_temp = stress_temp = 0.0;
+
+        for (int i = 0; i < num_int_points; i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+            disp_element->CalcDShape(ip, dshape); // Gradients of the shape functions in the reference element.
+            Trans->SetIntPoint(&ip);
+            mfem::Mult(dshape, Trans->InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            // Here we want to use voigt notation to compute the strain vector.
+            // The strain vector has 3 components in 2D and 6 components in 3D.
+
+            // Stress computations
+            Cmat.Eval(C, *Trans, ip);
+            if (dim == 2)
+            {
+                // B.SetSize(3, dof * dim); // In 2D, we have 3 unique strain components.
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf) = gshape(spf, 1);
+                    B(2, spf + dof) = gshape(spf, 0);
+                }
+            }
+
+            else if (dim == 3)
+            {
+                // B.SetSize(6, dof * dim); // In 3D, we have 6 unique strain components.
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf + 2 * dof) = gshape(spf, 2);
+                    B(3, spf + dof) = gshape(spf, 2);
+                    B(3, spf + 2 * dof) = gshape(spf, 1);
+                    B(4, spf) = gshape(spf, 2);
+                    B(4, spf + 2 * dof) = gshape(spf, 0);
+                    B(5, spf) = gshape(spf, 1);
+                    B(5, spf + dof) = gshape(spf, 0);
+                }
+            }
+
+            B.Mult(eldofdisp, strain_temp);
+            C.Mult(strain_temp, stress_temp);
+            elstrain.Add(w, strain_temp);
+            elstress.Add(w, stress_temp);
+        }
+    };
+
+    void ElementStressStrain::ComputeBdrElementStrainStress(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain, mfem::Coefficient &e, mfem::Coefficient &nu, mfem::Vector &elstress)
+    {
+        // To recover element strain, we need the B matrix at each integration point multiplied by
+        // the displacement vector at each node in the element. Therefore, the strain varies
+        // within the element if the B matrix is not constant. However, the strain is averaged
+        // within an element.
+
+        AccessMFEMFunctions accessfunc;
+
+        const mfem::FiniteElement *disp_bdr_element = disp_fes->GetBE(elnum);
+        const mfem::FiniteElement *L2_bdr_element = L2_fes->GetBE(elnum);
+
+        mfem::ElementTransformation *bdr_Trans = disp_fes->GetBdrElementTransformation(elnum);
+
+        int dof = disp_bdr_element->GetDof();
+        int dim = disp_bdr_element->GetDim();
+
+        mfem::Array<int> eldofs(dof * dim), eldofs2(dof * dim);
+        mfem::Array<double> eldofdisp(dof * dim);
+
+        int parent_el, info;
+        mfem::Mesh *mesh = disp_fespace->GetMesh();
+        mesh->GetBdrElementAdjacentElement(elnum, parent_el, info);
+
+        disp_fes->GetBdrElementVDofs(elnum, eldofs);
+        disp_fes->GetElementVDofs(elnum, eldofs2);
+
+        int eltype = disp_fes->GetElementType(elnum);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            int dof = eldofs[i];
+            eldofdisp[i] = disp(dof);
+        }
+
+        mfem::DenseMatrix dshape(dof, dim), gshape(dof, dim);
+
+        // elstrain.SetSize(dim == 2 ? 3 : 6);
+        elstrain = 0.0;
+
+        // Stiffness in Voigt notation. The stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+        mfem::DenseMatrix C(dim == 2 ? 3 : 6, dim == 2 ? 3 : 6);
+        // elstress.SetSize(dim == 2 ? 3 : 6);
+
+        C = 0.0;
+        elstress = 0.0;
+        mfem::real_t NU, E;
+
+        const mfem::IntegrationRule *ir(&(disp_bdr_element->GetNodes()));
+        int num_int_points = ir->GetNPoints();
+        // elstrain.SetSize(dim == 2 ? (3 * num_int_points) : (6 * num_int_points)); // This has to be wrong??
+        mfem::DenseMatrix B(dim == 2 ? 3 : 6, dof * dim);
+        B = 0.0;
+        double w = 1.0 / (ir->GetNPoints());
+        mfem::Vector strain_temp(elstrain.Size()), stress_temp(elstress.Size());
+        strain_temp = stress_temp = 0.0;
+
+        for (int i = 0; i < num_int_points; i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+            disp_bdr_element->CalcDShape(ip, dshape); // Gradients of the shape functions in the reference element.
+            bdr_Trans->SetIntPoint(&ip);
+            mfem::Mult(dshape, bdr_Trans->InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            // Here we want to use voigt notation to compute the strain vector.
+            // The strain vector has 3 components in 2D and 6 components in 3D.
+
+            // Stress computations
+            NU = nu.Eval(*bdr_Trans, ip);
+            E = e.Eval(*bdr_Trans, ip);
+            if (dim == 2)
+            {
+                // B.SetSize(3, dof * dim); // In 2D, we have 3 unique strain components.
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf) = gshape(spf, 1);
+                    B(2, spf + dof) = gshape(spf, 0);
+                }
+
+                // Plane strain
+
+                C(0, 0) = C(1, 1) = E / (1 - pow(NU, 2));
+                C(0, 1) = C(1, 0) = (E * NU) / (1 - pow(NU, 2));
+                C(2, 2) = (E * (1 - NU)) / (2 * (1 - pow(NU, 2)));
+
+                // Plane stress
+
+                // C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                // C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                // C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
+            }
+            else if (dim == 3)
+            {
+                // B.SetSize(6, dof * dim); // In 3D, we have 6 unique strain components.
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf + 2 * dof) = gshape(spf, 2);
+                    B(3, spf + dof) = gshape(spf, 2);
+                    B(3, spf + 2 * dof) = gshape(spf, 1);
+                    B(4, spf) = gshape(spf, 2);
+                    B(4, spf + 2 * dof) = gshape(spf, 0);
+                    B(5, spf) = gshape(spf, 1);
+                    B(5, spf + dof) = gshape(spf, 0);
+                }
+
+                // 3D elasticity tensor in Voigt notation
+                C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
+            }
+
+            B.Mult(eldofdisp, strain_temp);
+            C.Mult(strain_temp, stress_temp);
+            elstrain.Add(w, strain_temp);
+            elstress.Add(w, stress_temp);
+        }
+    };
+
+    void ElementStressStrain::ComputeBdrElementStrainStress(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain, mfem::MatrixCoefficient &Cmat, mfem::Vector &elstress)
+    {
+        // To recover element strain, we need the B matrix at each integration point multiplied by
+        // the displacement vector at each node in the element. Therefore, the strain varies
+        // within the element if the B matrix is not constant. However, the strain is averaged
+        // within an element.
+
+        AccessMFEMFunctions accessfunc;
+
+        const mfem::FiniteElement *disp_bdr_element = disp_fes->GetBE(elnum);
+        const mfem::FiniteElement *L2_bdr_element = L2_fes->GetBE(elnum);
+
+        mfem::ElementTransformation *bdr_Trans = disp_fes->GetBdrElementTransformation(elnum);
+
+        int dof = disp_bdr_element->GetDof();
+        int dim = disp_bdr_element->GetDim();
+
+        mfem::Array<int> eldofs(dof * dim);
+        mfem::Array<double> eldofdisp(dof * dim);
+
+        disp_fes->GetElementVDofs(elnum, eldofs);
+        int eltype = disp_fes->GetElementType(elnum);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            int dof = eldofs[i];
+            eldofdisp[i] = disp(dof);
+        }
+
+        mfem::DenseMatrix dshape(dof, dim), gshape(dof, dim);
+
+        elstrain.SetSize(dim == 2 ? 3 : 6);
+        elstrain = 0.0;
+
+        // Stiffness in Voigt notation. The stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+        mfem::DenseMatrix C(dim == 2 ? 3 : 6, dim == 2 ? 3 : 6);
+        elstress.SetSize(dim == 2 ? 3 : 6);
+
+        C = 0.0;
+        elstress = 0.0;
+        mfem::real_t NU, E;
+
+        const mfem::IntegrationRule *ir(&(disp_bdr_element->GetNodes()));
+        int num_int_points = ir->GetNPoints();
+        // elstrain.SetSize(dim == 2 ? (3 * num_int_points) : (6 * num_int_points)); // This has to be wrong??
+        mfem::DenseMatrix B(dim == 2 ? 3 : 6, dof * dim);
+        B = 0.0;
+        double w = 1.0 / (ir->GetNPoints());
+        mfem::Vector strain_temp(elstrain.Size()), stress_temp(elstress.Size());
+        strain_temp = stress_temp = 0.0;
+
+        for (int i = 0; i < num_int_points; i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+            disp_bdr_element->CalcDShape(ip, dshape); // Gradients of the shape functions in the reference element.
+            bdr_Trans->SetIntPoint(&ip);
+            mfem::Mult(dshape, bdr_Trans->InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            // Here we want to use voigt notation to compute the strain vector.
+            // The strain vector has 3 components in 2D and 6 components in 3D.
+
+            // Stress computations
+            Cmat.Eval(C, *bdr_Trans, ip);
+            if (dim == 2)
+            {
+                // B.SetSize(3, dof * dim); // In 2D, we have 3 unique strain components.
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf) = gshape(spf, 1);
+                    B(2, spf + dof) = gshape(spf, 0);
+                }
+            }
+
+            else if (dim == 3)
+            {
+                // B.SetSize(6, dof * dim); // In 3D, we have 6 unique strain components.
+
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf + 2 * dof) = gshape(spf, 2);
+                    B(3, spf + dof) = gshape(spf, 2);
+                    B(3, spf + 2 * dof) = gshape(spf, 1);
+                    B(4, spf) = gshape(spf, 2);
+                    B(4, spf + 2 * dof) = gshape(spf, 0);
+                    B(5, spf) = gshape(spf, 1);
+                    B(5, spf + dof) = gshape(spf, 0);
+                }
+            }
+
+            B.Mult(eldofdisp, strain_temp);
+            C.Mult(strain_temp, stress_temp);
+            elstrain.Add(w, strain_temp);
+            elstress.Add(w, stress_temp);
         }
     };
 
@@ -425,52 +1303,6 @@ namespace mfemplus
     }
 
     //------------------------------------------------------------------------------------------------------------------------------------
-    // General function to compute displacement gradients at each integration point.
-    mfem::Vector ElementStressStrain::ComputeElementDisplacementGradients(mfem::DenseMatrix &gshape, mfem::Vector &eldofdisp)
-    {
-        // Arrange the gradients of the shape functions in the B matrix to recover the displacement gradients.
-        // There are 9 displacement gradients in 3D and 4 in 2D.
-
-        int dim = gshape.NumCols();
-        int dof = gshape.NumRows();
-        mfem::DenseMatrix B;
-        mfem::Vector temp;
-
-        if (dim == 2)
-        {
-            B.SetSize(4, dof * dim);
-            temp.SetSize(4);
-            B = 0.0;
-            for (int spf = 0; spf < dof; spf++)
-            {
-                B(0, spf) = gshape(spf, 0);       // u_{1,1}
-                B(1, spf + dof) = gshape(spf, 1); // u_{2,2}
-                B(2, spf) = gshape(spf, 1);       // u_{1,2}
-                B(3, spf + dof) = gshape(spf, 0); // u_{2,1}
-            }
-        }
-
-        else if (dim == 3)
-        {
-            B.SetSize(9, dof * dim);
-            temp.SetSize(9);
-            B = 0.0;
-            for (int spf = 0; spf < dof; spf++)
-            {
-                B(0, spf) = gshape(spf, 0);           // u_{1,1}
-                B(1, spf + dof) = gshape(spf, 1);     // u_{2,2}
-                B(2, spf + 2 * dof) = gshape(spf, 2); // u_{3,3}
-                B(3, spf) = gshape(spf, 1);           // u_{1,2}
-                B(4, spf) = gshape(spf, 2);           // u_{1,3}
-                B(5, spf + dof) = gshape(spf, 0);     // u_{2,1}
-                B(6, spf + dof) = gshape(spf, 2);     // u_{2,3}
-                B(7, spf + 2 * dof) = gshape(spf, 0); // u_{3,1}
-                B(8, spf + 2 * dof) = gshape(spf, 1); // u_{3,2}
-            }
-        }
-        B.Mult(eldofdisp, temp);
-        return temp;
-    };
 
     void ElementStressStrain::ComputeElementStrainip(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain)
     {
@@ -503,6 +1335,69 @@ namespace mfemplus
         ip_rotation.SetSize(dim == 2 ? 1 : 3);
         ip_strain = 0.0;
         ip_rotation = 0.0;
+
+        const mfem::IntegrationRule *ir(&(L2_element->GetNodes()));
+        int num_int_points = ir->GetNPoints();
+
+        elstrain.SetSize(dim == 2 ? (3 * num_int_points) : (6 * num_int_points));
+
+        for (int i = 0; i < num_int_points; i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+            disp_element->CalcDShape(ip, dshape); // Gradients of the shape functions in the reference element.
+            Trans->SetIntPoint(&ip);
+            mfem::Mult(dshape, Trans->InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            mfem::Vector disp_gradients(ComputeElementDisplacementGradients(gshape, eldofdisp)); // Compute displacement gradients vector.
+            // Now, sum up the displacement gradients properly to get strain and curl(u) (or rot(u) in 2D).
+            if (dim == 2)
+            {
+                elstrain(i) = disp_gradients(0);                                                  // u_{1,1}
+                elstrain(i + num_int_points) = disp_gradients(1);                                 // u_{2,2}
+                elstrain(i + 2 * num_int_points) = 0.5 * (disp_gradients(2) + disp_gradients(3)); // \frac{1}{2} (u_{1,2} + u_{2,1})
+            }
+
+            if (dim == 3)
+            {
+                elstrain(i) = disp_gradients(0);                                                  // u_{1,1}
+                elstrain(i + num_int_points) = disp_gradients(1);                                 // u_{2,2}
+                elstrain(i + 2 * num_int_points) = disp_gradients(2);                             // u_{3,3}
+                elstrain(i + 3 * num_int_points) = 0.5 * (disp_gradients(6) + disp_gradients(8)); // \frac{1}{2} (u_{2,3} + u_{3,2})
+                elstrain(i + 4 * num_int_points) = 0.5 * (disp_gradients(4) + disp_gradients(7)); // \frac{1}{2} (u_{1,3} + u_{3,1})
+                elstrain(i + 5 * num_int_points) = 0.5 * (disp_gradients(3) + disp_gradients(5)); // \frac{1}{2} (u_{1,2} + u_{2,1})
+            }
+        }
+    };
+
+    void ElementStressStrain::ComputeElementStrainStressip(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *disp_fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain, mfem::Coefficient &e, mfem::Coefficient &nu, mfem::Vector &elstress)
+    {
+        AccessMFEMFunctions accessfunc;
+        const mfem::FiniteElement *disp_element = disp_fes->GetFE(elnum);
+        const mfem::FiniteElement *L2_element = L2_fes->GetFE(elnum);
+
+        mfem::ElementTransformation *Trans = disp_fes->GetElementTransformation(elnum);
+
+        int dof = disp_element->GetDof();
+        int dim = disp_element->GetDim();
+
+        mfem::Array<int> eldofs(dof * dim);
+        mfem::Vector eldofdisp(dof * dim);
+
+        disp_fes->GetElementVDofs(elnum, eldofs);
+        int eltype = disp_fes->GetElementType(elnum);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            int loc_dof = eldofs[i];
+            eldofdisp(i) = disp(loc_dof);
+        }
+
+        mfem::Vector eldofdisptemp(dof * dim);
+        mfem::DenseMatrix dshape(dof, dim), gshape(dof, dim);
+
+        mfem::Vector ip_strain(dim == 2 ? 3 : 6), ip_stress(dim == 2 ? 3 : 6);
+        ip_strain = 0.0;
+        ip_stress = 0.0;
 
         const mfem::IntegrationRule *ir(&(L2_element->GetNodes()));
         int num_int_points = ir->GetNPoints();
@@ -1158,7 +2053,8 @@ namespace mfemplus
         {
             mfem::Vector elstrain;
             ElementStressStrain Element;
-            Element.ComputeElementStrain(disp, elnum, disp_fespace, elstrain);
+            // Element.ComputeElementStrain(disp, elnum, disp_fespace, elstrain);
+            Element.ComputeElementStrain(disp, elnum, disp_fespace, L2_fespace, elstrain);
             for (int comp = 0; comp < str_comp; comp++)
                 strain(elnum + (numels * comp)) = elstrain(comp);
         }
@@ -1372,7 +2268,6 @@ namespace mfemplus
         // In 2D, there are 3 strain components. In 3D, there are 6 strain components.
         int str_comp = (dim == 2) ? 3 : 6;
         // In 2D, rotation is a scalar. In 3D, it is a vector with 3 components.
-        int rot_comp = (dim == 2) ? 1 : 3;
 
         // #pragma omp parallel for
         for (int elnum = 0; elnum < numels; elnum++)
@@ -1447,6 +2342,101 @@ namespace mfemplus
             Element.ComputeElementAverageMaxShear(disp, elnum, disp_fespace, L2_fespace, max_shear);
 
             max_shear_strain(elnum) = max_shear;
+        }
+    };
+
+    void GlobalStressStrain::GlobalStrainStressElAverage(mfem::GridFunction &disp, mfem::GridFunction &strain, mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &stress)
+    {
+        int numels = disp_fespace->GetNE();
+        int dim = mesh->Dimension();
+        // There are 3 strain components in 2D and 6 in 3D.
+        int str_comp = (dim == 2) ? 3 : 6;
+
+        // Now start a loop that assembles strain vector element by element, and assembles the grid function.
+        // The zeroth to numels index is \epsilon_{11}, then \epsilon_{22}, \epsilon_{33},
+        // \epsilon_{23}, \epsilon_{13}, \epsilon_{12}.
+
+        mfem::Vector elstrain(str_comp), elstress(str_comp);
+        for (int elnum = 0; elnum < numels; elnum++)
+        {
+            ElementComp->ComputeElementStrainStress(disp, elnum, disp_fespace, L2_fespace, elstrain, e, nu, elstress);
+            for (int comp = 0; comp < str_comp; comp++)
+            {
+                strain(elnum + (numels * comp)) = elstrain(comp);
+                stress(elnum + (numels * comp)) = elstress(comp);
+            }
+        }
+    }
+
+    void GlobalStressStrain::GlobalStrainStressElAverage(mfem::GridFunction &disp, mfem::GridFunction &strain, mfem::MatrixCoefficient &Cmat, mfem::GridFunction &stress)
+    {
+        int numels = disp_fespace->GetNE();
+        int dim = mesh->Dimension();
+        // There are 3 strain components in 2D and 6 in 3D.
+        int str_comp = (dim == 2) ? 3 : 6;
+
+        // Now start a loop that assembles strain vector element by element, and assembles the grid function.
+        // The zeroth to numels index is \epsilon_{11}, then \epsilon_{22}, \epsilon_{33},
+        // \epsilon_{23}, \epsilon_{13}, \epsilon_{12}.
+
+        mfem::Vector elstrain(str_comp), elstress(str_comp);
+        for (int elnum = 0; elnum < numels; elnum++)
+        {
+            ElementComp->ComputeElementStrainStress(disp, elnum, disp_fespace, L2_fespace, elstrain, Cmat, elstress);
+            for (int comp = 0; comp < str_comp; comp++)
+            {
+                strain(elnum + (numels * comp)) = elstrain(comp);
+                stress(elnum + (numels * comp)) = elstress(comp);
+            }
+        }
+    }
+
+    void GlobalStressStrain::BdrStrainStressElAverage(mfem::Array<int> &bdr_els, mfem::GridFunction &disp, mfem::Vector &bdr_strain, mfem::Coefficient &e, mfem::Coefficient &nu, mfem::Vector &bdr_stress)
+    {
+        int dim = mesh->Dimension();
+        // There are 3 strain components in 2D and 6 in 3D.
+        int str_comp = (dim == 2) ? 3 : 6;
+        int bdr_numels = bdr_els.Size();
+
+        // Now start a loop that assembles strain vector element by element, and assembles the grid function.
+        // The zeroth to numels index is \epsilon_{11}, then \epsilon_{22}, \epsilon_{33},
+        // \epsilon_{23}, \epsilon_{13}, \epsilon_{12}.
+        mfem::Vector elstrain(str_comp), elstress(str_comp);
+        int count = 0;
+        for (auto elnum : bdr_els)
+        {
+            ElementComp->ComputeBdrElementStrainStress(disp, elnum, disp_fespace, L2_fespace, elstrain, e, nu, elstress);
+            for (int comp = 0; comp < str_comp; comp++)
+            {
+                bdr_strain(comp + (count * str_comp)) = elstrain(comp);
+                bdr_stress(comp + (count * str_comp)) = elstress(comp);
+            }
+            count++;
+        }
+    }
+
+    void GlobalStressStrain::BdrStrainStressElAverage(mfem::Array<int> &bdr_els, mfem::GridFunction &disp, mfem::Vector &bdr_strain, mfem::MatrixCoefficient &Cmat, mfem::Vector &bdr_stress)
+    {
+        int dim = mesh->Dimension();
+        // There are 3 strain components in 2D and 6 in 3D.
+        int str_comp = (dim == 2) ? 3 : 6;
+        int bdr_numels = bdr_els.Size();
+
+        // Now start a loop that assembles strain vector element by element, and assembles the grid function.
+        // The zeroth to numels index is \epsilon_{11}, then \epsilon_{22}, \epsilon_{33},
+        // \epsilon_{23}, \epsilon_{13}, \epsilon_{12}.
+
+        mfem::Vector elstrain(str_comp), elstress(str_comp);
+        int count = 0;
+        for (auto elnum : bdr_els)
+        {
+            ElementComp->ComputeBdrElementStrainStress(disp, elnum, disp_fespace, L2_fespace, elstrain, Cmat, elstress);
+            for (int comp = 0; comp < str_comp; comp++)
+            {
+                bdr_strain(comp + (count * str_comp)) = elstrain(comp);
+                bdr_stress(comp + (count * str_comp)) = elstress(comp);
+            }
+            count++;
         }
     }
 }
