@@ -189,7 +189,6 @@ namespace mfemplus
             eldofdisp(i) = disp(dof);
         }
 
-        mfem::real_t w;
         mfem::DenseMatrix dshape(dof, dim), gshape(dof, dim);
 
         elstrain.SetSize(dim == 2 ? 3 : 6);
