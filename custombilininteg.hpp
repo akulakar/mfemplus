@@ -294,5 +294,115 @@ namespace mfemplus
                                    mfem::ElementTransformation &Trans,
                                    mfem::DenseMatrix &elmat) override;
     };
+    //------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------
+    // Integrators for variational fracture.
+    //------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------
+    /** Integrator for variational fracture strain energy term using general stiffness tensor, specifying Young's modulus E and Poisson's ratio nu, and multiplied with the degradation damage function (1 - d^{2}) + k_{\epsilon}.
+       $$
+         a(u,v) =  ((1 - d)^{2} + k_{\epsilon})*(\mathrm{C}_{ijkl} u_{k,l} v_{i,j})
+       $$
+       This is a 'Vector' integrator, i.e. defined for FE spaces using multiple copies of a scalar FE space. **/
+    class IsotropicElasticityDamageIntegrator : public mfem::BilinearFormIntegrator
+    {
+
+    protected:
+        mfem::Coefficient *young_mod, *poisson_ratio;
+        mfem::real_t k_epsilon;
+        mfem::GridFunction *damage_gf;
+        mfem::FiniteElementSpace *damage_fes;
+
+    private:
+#ifndef MFEM_THREAD_SAFE
+        mfem::Vector shape;
+        mfem::DenseMatrix dshape, gshape;
+#endif
+
+        // PA extension
+
+        const mfem::DofToQuad *maps;        ///< Not owned
+        const mfem::GeometricFactors *geom; ///< Not owned
+        int vdim, ndofs;
+        const mfem::FiniteElementSpace *fespace; ///< Not owned.
+
+        std::unique_ptr<mfem::QuadratureSpace> q_space;
+        /// Coefficients projected onto q_space
+        std::unique_ptr<mfem::CoefficientVector> E_quad, nu_quad;
+        /// Workspace vector
+        std::unique_ptr<mfem::QuadratureFunction> q_vec;
+
+        /// Set up the quadrature space.
+
+    public:
+        IsotropicElasticityDamageIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::real_t k_eps, mfem::GridFunction &damage_gridfunc, mfem::FiniteElementSpace *damage_fespace)
+        {
+            young_mod = &e;
+            poisson_ratio = &nu;
+            k_epsilon = k_eps; // Not a coefficient object, since not expected to spatially vary.
+            damage_gf = &damage_gridfunc;
+            damage_fes = damage_fespace;
+        }
+        IsotropicElasticityDamageIntegrator() {};
+
+        void AssembleElementMatrix(const mfem::FiniteElement &el,
+                                   mfem::ElementTransformation &Tr,
+                                   mfem::DenseMatrix &elmat) override;
+    };
+
+    /** Integrator for variational fracture, elastic energy and damage term, using Young's modulus E and Poisson's ratio nu
+       $$
+         a(u,v) =  (\mathrm{C}_{ijkl} u_{k,l} u_{i,j}) d \phi
+       $$
+       This is a scalar integrator, i.e. defined for scalar FE spaces. **/
+    class IsotropicStrainEnergyDamageIntegrator : public mfem::BilinearFormIntegrator
+    {
+
+    protected:
+        mfem::Coefficient *young_mod, *poisson_ratio;
+        mfem::GridFunction *disp_gf;
+        mfem::FiniteElementSpace *disp_fes;
+
+    private:
+#ifndef MFEM_THREAD_SAFE
+        mfem::Vector shape;
+        mfem::DenseMatrix dshape, gshape;
+#endif
+
+        // PA extension
+
+        const mfem::DofToQuad *maps;        ///< Not owned
+        const mfem::GeometricFactors *geom; ///< Not owned
+        int vdim, ndofs;
+        const mfem::FiniteElementSpace *fespace; ///< Not owned.
+
+        std::unique_ptr<mfem::QuadratureSpace> q_space;
+        /// Coefficients projected onto q_space
+        std::unique_ptr<mfem::CoefficientVector> E_quad, nu_quad;
+        /// Workspace vector
+        std::unique_ptr<mfem::QuadratureFunction> q_vec;
+
+        /// Set up the quadrature space.
+
+    public:
+        IsotropicStrainEnergyDamageIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &disp_gridfunc, mfem::FiniteElementSpace *disp_fespace)
+        {
+            young_mod = &e;
+            poisson_ratio = &nu;
+            disp_gf = &disp_gridfunc;
+            disp_fes = disp_fespace;
+        }
+        IsotropicStrainEnergyDamageIntegrator() {};
+
+        void AssembleElementMatrix(const mfem::FiniteElement &el,
+                                   mfem::ElementTransformation &Tr,
+                                   mfem::DenseMatrix &elmat) override;
+    };
+
+    //------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------
+    // Fracture integrators end here.
+    //------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------
 }
 #endif

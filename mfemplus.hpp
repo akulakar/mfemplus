@@ -9,5 +9,6 @@
 #include "customoperators.hpp"
 #include "computequantities.hpp"
 #include "custombilininteg.hpp"
+#include "customlininteg.hpp"
 
 #endif
