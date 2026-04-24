@@ -679,7 +679,8 @@ namespace mfemplus
         mfem::Vector CBu(str_comp);
         mfem::Vector Bu(str_comp);
         mfem::DenseMatrix elmat_intpt(dof, dof);
-        double strain_energy;
+        double lambda1(0.0), lambda2(0.0), lambda3(0.0);
+        double strain_energy(0.0);
 
         for (int i = 0; i < ir->GetNPoints(); i++)
         {
@@ -749,14 +750,28 @@ namespace mfemplus
             // Now compute the quantity C_{ijkl} u_{k,l} u_{i,j}. Using Voigt notation, of course...
             // This is equivalent to.
             mfem::Mult(C, B, CB);    // CB is 6 x (dof * dim)
-            CB.Mult(eldofdisp, CBu); // CBu has dimension strain_comps
-            B.Mult(eldofdisp, Bu);   // Bu has dimension strain_comps
+            CB.Mult(eldofdisp, CBu); // CBu has dimension strain_comps. This is the stress vector.
+            B.Mult(eldofdisp, Bu);   // Bu has dimension strain_comps. This is the strain vector.
 
-            strain_energy = mfem::InnerProduct(CBu, Bu);
+            if (dim == 3)
+            {
+                lambda1 = CBu(0) - std::abs(CBu(5)) - std::abs(CBu(4)); // \lambda_{1} = \sigma_{11} - |\sigma_{12}| - |\sigma_{13}|
+                lambda2 = CBu(1) - std::abs(CBu(5)) - std::abs(CBu(3)); // \lambda_{2} = \sigma_{22} - |\sigma_{12}| - |\sigma_{23}|
+                lambda3 = CBu(2) - std::abs(CBu(4)) - std::abs(CBu(3)); // \lambda_{3} = \sigma_{33} - |\sigma_{13}| - |\sigma_{23}|
+            }
 
-            el.CalcPhysShape(Trans, shape);
-            mfem::AddMult_a_VVt(w * strain_energy, shape, elmat); // multiplied by twice the strain energy.
+            if (std::min({lambda1, lambda2, lambda3}) > 0)
+            {
+                strain_energy = mfem::InnerProduct(CBu, Bu);
+                el.CalcPhysShape(Trans, shape);
+                mfem::AddMult_a_VVt(w * strain_energy, shape, elmat); // multiplied by twice the strain energy.
+            }
+            else
+            {
+                strain_energy = 1.0e-20;
+                el.CalcPhysShape(Trans, shape);
+                mfem::AddMult_a_VVt(strain_energy, shape, elmat); // multiplied by twice the strain energy.
+            }
         }
     }
-
 }
