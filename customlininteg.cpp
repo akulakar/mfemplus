@@ -35,10 +35,11 @@ namespace mfemplus
         // Great, now we have all components of displacements at each dof.
         // Next, construct the stiffness matrix C, compute displacement gradients, and take inner product.
 
-        for (int i = 0; i < eldofdisp.Size() / dim; i++)
-        {
-            eldofdamage(i) = (*dmg_gf)(eldofs[i]);
-        }
+        // Viscosity turned off.
+        // for (int i = 0; i < eldofdisp.Size() / dim; i++)
+        // {
+        //     eldofdamage(i) = (*dmg_gf)(eldofs[i]);
+        // }
         // Great, now we have damage at each dof. Use that to compute viscosity term at each dof.
 
         const mfem::IntegrationRule *ir = GetIntegrationRule(el, Tr);
@@ -57,7 +58,7 @@ namespace mfemplus
         mfem::Vector CBu(str_comp);
         mfem::Vector Bu(str_comp);
         double lambda1, lambda2, lambda3;
-        double strain_energy;
+        double strain_energy, ip_strain_energy;
         double damage_val, visc_coeff, viscosity_term;
 
         for (int i = 0; i < ir->GetNPoints(); i++)
@@ -69,9 +70,9 @@ namespace mfemplus
             el.CalcPhysShape(Tr, shape);
             w = ip.weight * Tr.Weight(); // Quadrature weights
 
-            damage_val = mfem::InnerProduct(shape, eldofdamage);
-            visc_coeff = viscosity_coeff->Eval(Tr, ip);
-            viscosity_term = damage_val * visc_coeff;
+            // damage_val = mfem::InnerProduct(shape, eldofdamage);
+            // visc_coeff = viscosity_coeff->Eval(Tr, ip);
+            // viscosity_term = damage_val * visc_coeff;
 
             NU = poisson_ratio->Eval(Tr, ip);
             E = young_mod->Eval(Tr, ip); // The elastic constants are evaluated at each integration point.
@@ -159,7 +160,8 @@ namespace mfemplus
             else
                 strain_energy = 0.0;
 
-            add(elvect, w * (strain_energy + visc_coeff), shape, elvect);
+            // for now okay, but probably will change it to element average strain energy.
+            add(elvect, w * strain_energy, shape, elvect); // Instead of multiplying the strain_energy, I could add the element average to the vector after.
         }
     };
     void FractureHistoryVariableLFIntegrator::AssembleRHSElementVect(const mfem::FiniteElement &el, mfem::ElementTransformation &Tr, mfem::Vector &elvect)
