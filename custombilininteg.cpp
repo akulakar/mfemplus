@@ -495,6 +495,7 @@ namespace mfemplus
     void IsotropicElasticityDamageIntegrator::AssembleElementMatrix(
         const mfem::FiniteElement &el, mfem::ElementTransformation &Trans, mfem::DenseMatrix &elmat)
     {
+        // uses spectral split of elastic strain energy.
         int dof = el.GetDof();
         int dim = el.GetDim();
         int str_comp = (dim == 2) ? 3 : 6;
@@ -559,8 +560,8 @@ namespace mfemplus
             damage_value = mfem::InnerProduct(shape, eldofdamage);
             degradation_constant = ((1.0 - damage_value) * (1.0 - damage_value)) + k_epsilon; // (1 - d)^{2} + k_{\epsilon}
 
-            w = ip.weight * Trans.Weight() * degradation_constant; // Quadrature weights
-            mfem::Mult(dshape, Trans.InverseJacobian(), gshape);   // Recovering the gradients of the shape functions in the physical space.
+            w = ip.weight * Trans.Weight();                      // Quadrature weights
+            mfem::Mult(dshape, Trans.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
 
             NU = poisson_ratio->Eval(Trans, ip);
             E = young_mod->Eval(Trans, ip); // The elastic constants are evaluated at each integration point.
@@ -624,9 +625,9 @@ namespace mfemplus
                 }
             }
 
-            mfem::Mult(C, B, CB);              // CB is 6 x (dof * dim)
-            mfem::MultAtB(B, CB, elmat_intpt); // elmat_add is (dof*dim) x (dof*dim)
-            elmat.Add(w, elmat_intpt);         // multiplied by the degradation constant.
+            mfem::Mult(C, B, CB);                             // CB is 6 x (dof * dim)
+            mfem::MultAtB(B, CB, elmat_intpt);                // elmat_add is (dof*dim) x (dof*dim)
+            elmat.Add(w * degradation_constant, elmat_intpt); // multiplied by the degradation constant.
         }
     }
 
@@ -687,9 +688,11 @@ namespace mfemplus
             const mfem::IntegrationPoint &ip = ir->IntPoint(i);
 
             el.CalcDShape(ip, dshape);
-
             Trans.SetIntPoint(&ip);
-            w = ip.weight * Trans.Weight();                      // Quadrature weights
+            el.CalcPhysShape(Trans, shape);
+
+            w = ip.weight * Trans.Weight(); // Quadrature weights
+
             mfem::Mult(dshape, Trans.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
 
             NU = poisson_ratio->Eval(Trans, ip);
@@ -751,8 +754,15 @@ namespace mfemplus
             // This is equivalent to.
             mfem::Mult(C, B, CB);    // CB is 6 x (dof * dim)
             CB.Mult(eldofdisp, CBu); // CBu has dimension strain_comps. This is the stress vector.
-            B.Mult(eldofdisp, Bu);   // Bu has dimension strain_comps. This is the strain vector.
 
+            // Gershgorin circle theorem for stress. Alternatively, use history variable for strain energy.
+            if (dim == 2)
+            {
+                // In 2D lambda min is lambda1.
+                lambda1 = (CBu(0) + CBu(1)) / 2.0 - std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
+                lambda2 = (CBu(0) + CBu(1)) / 2.0 + std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
+                lambda3 = lambda1 + 1.0;
+            }
             if (dim == 3)
             {
                 lambda1 = CBu(0) - std::abs(CBu(5)) - std::abs(CBu(4)); // \lambda_{1} = \sigma_{11} - |\sigma_{12}| - |\sigma_{13}|
@@ -762,16 +772,13 @@ namespace mfemplus
 
             if (std::min({lambda1, lambda2, lambda3}) > 0)
             {
+                B.Mult(eldofdisp, Bu); // Bu has dimension strain_comps. This is the strain vector.
                 strain_energy = mfem::InnerProduct(CBu, Bu);
-                el.CalcPhysShape(Trans, shape);
-                mfem::AddMult_a_VVt(w * strain_energy, shape, elmat); // multiplied by twice the strain energy.
             }
             else
-            {
-                strain_energy = 1.0e-20;
-                el.CalcPhysShape(Trans, shape);
-                mfem::AddMult_a_VVt(strain_energy, shape, elmat); // multiplied by twice the strain energy.
-            }
+                strain_energy = 1.0e-40;
+
+            mfem::AddMult_a_VVt(w * strain_energy, shape, elmat); // multiplied by twice the strain energy.
         }
     }
 }
