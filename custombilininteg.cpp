@@ -492,6 +492,8 @@ namespace mfemplus
         }
     }
 
+    // Fracture integrators
+
     void IsotropicElasticityDamageIntegrator::AssembleElementMatrix(
         const mfem::FiniteElement &el, mfem::ElementTransformation &Trans, mfem::DenseMatrix &elmat)
     {
@@ -575,14 +577,14 @@ namespace mfemplus
             {
                 C = 0.0;
                 // Plane strain
-                C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
-                C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
-                C(2, 2) = E / (2 * (1 + NU));
+                // C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
+                // C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
+                // C(2, 2) = E / (2 * (1 + NU));
 
                 // Plane stress
-                // C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
-                // C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
-                // C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
+                C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
 
                 // 3D to 2D, but this is improper
                 // C(0, 0) = C(1, 1) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
@@ -707,14 +709,14 @@ namespace mfemplus
             {
                 C = 0.0;
                 // Plane strain
-                C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
-                C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
-                C(2, 2) = E / (2 * (1 + NU));
+                // C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
+                // C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
+                // C(2, 2) = E / (2 * (1 + NU));
 
                 // Plane stress
-                // C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
-                // C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
-                // C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
+                C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
 
                 // In 2D, we have 3 unique strain components.
                 B = 0.0;
@@ -754,14 +756,20 @@ namespace mfemplus
             // This is equivalent to.
             mfem::Mult(C, B, CB);    // CB is 6 x (dof * dim)
             CB.Mult(eldofdisp, CBu); // CBu has dimension strain_comps. This is the stress vector.
+            // B.Mult(eldofdisp, Bu);   // Bu has dimension strain_comps. This is the strain vector.
+            // strain_energy = mfem::InnerProduct(CBu, Bu);
 
             // Gershgorin circle theorem for stress. Alternatively, use history variable for strain energy.
             if (dim == 2)
             {
                 // In 2D lambda min is lambda1.
-                lambda1 = (CBu(0) + CBu(1)) / 2.0 - std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
-                lambda2 = (CBu(0) + CBu(1)) / 2.0 + std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
-                lambda3 = lambda1 + 1.0;
+                // lambda1 = (CBu(0) + CBu(1)) / 2.0 - std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
+                // lambda2 = (CBu(0) + CBu(1)) / 2.0 + std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
+                // lambda3 = lambda1 + 1.0;
+
+                lambda1 = CBu(0) - std::abs(CBu(3));
+                lambda2 = CBu(1) - std::abs(CBu(3));
+                lambda3 = lambda1 + lambda2; // artificially making it greater than both.
             }
             if (dim == 3)
             {
