@@ -20,7 +20,9 @@ namespace mfemplus
         mfem::Array<int> eldofs;
         int oa, ob;
         mfem::Coefficient *young_mod, *poisson_ratio;
+        mfem::Coefficient *viscosity_term;
         mfem::GridFunction *disp_gf;
+        mfem::GridFunction *damage_gf;
         mfem::FiniteElementSpace *disp_fes;
         mfem::DenseMatrix C, B, CB; // stiffness, strain-displacement, Stiffness times strain-displacement in Voigt form
         mfem::Vector CBu, Bu;
@@ -32,8 +34,8 @@ namespace mfemplus
         // Need to modify the constructors...
 
         /// Constructs a domain integrator with a given Coefficient
-        FractureDamageLFIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &disp, mfem::FiniteElementSpace *disp_fespace, int a = 2, int b = 0)
-            : young_mod(&e), poisson_ratio(&nu), disp_gf(&disp), disp_fes(disp_fespace), oa(a), ob(b) {}
+        FractureDamageLFIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::Coefficient &viscosity, mfem::GridFunction &disp, mfem::GridFunction &damage, mfem::FiniteElementSpace *disp_fespace, int a = 2, int b = 0)
+            : young_mod(&e), poisson_ratio(&nu), viscosity_term(&viscosity), disp_gf(&disp), damage_gf(&damage), disp_fes(disp_fespace), oa(a), ob(b) {}
 
         void AssembleDevice(const mfem::FiniteElementSpace &fes, const mfem::Array<int> &markers, mfem::Vector &b) override {};
 

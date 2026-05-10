@@ -38,7 +38,7 @@ namespace mfemplus
         // Viscosity turned off.
         // for (int i = 0; i < eldofdisp.Size() / dim; i++)
         // {
-        //     eldofdamage(i) = (*dmg_gf)(eldofs[i]);
+        //     eldofdamage(i) = (*damage_gf)(eldofs[i]);
         // }
         // Great, now we have damage at each dof. Use that to compute viscosity term at each dof.
 
@@ -51,7 +51,7 @@ namespace mfemplus
             ir = &mfem::IntRules.Get(el.GetGeomType(), oa * el.GetOrder() + ob);
         }
         double w, NU, E;
-
+        double viscosity;
         mfem::DenseMatrix C(str_comp, str_comp);   // Stiffness in Voigt form
         mfem::DenseMatrix B(str_comp, dof * dim);  // Strain displacement matrix
         mfem::DenseMatrix CB(str_comp, dof * dim); // Stiffness times strain displacement
@@ -71,6 +71,10 @@ namespace mfemplus
 
             NU = poisson_ratio->Eval(Tr, ip);
             E = young_mod->Eval(Tr, ip); // The elastic constants are evaluated at each integration point.
+
+            // Viscosity turned off.
+            // viscosity = viscosity_term->Eval(Tr, ip);
+            // eldofdamage *= shape;
 
             mfem::Mult(dshape, Tr.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
 
@@ -134,7 +138,7 @@ namespace mfemplus
             // B.Mult(eldofdisp, Bu);   // Bu has dimension strain_comps. This is the strain vector.
             // strain_energy = mfem::InnerProduct(CBu, Bu);
 
-            // // Gershgorin circle theorem for stress. Alternatively, use history variable for strain energy.
+            // Gershgorin circle theorem for stress. Alternatively, use history variable for strain energy.
             if (dim == 2)
             {
                 // In 2D lambda min is lambda1.
@@ -159,10 +163,15 @@ namespace mfemplus
                 strain_energy = mfem::InnerProduct(CBu, Bu);
             }
             else
+            {
                 strain_energy = 0.0;
+                viscosity = 0.0;
+            }
 
             // for now okay, but probably will change it to element average strain energy.
             add(elvect, w * strain_energy, shape, elvect); // Instead of multiplying the strain_energy, I could add the element average to the vector after.
+            // Viscosity turned off.
+            // add(elvect, w * viscosity, eldofdamage, elvect);
         }
     };
     void FractureHistoryVariableLFIntegrator::AssembleRHSElementVect(const mfem::FiniteElement &el, mfem::ElementTransformation &Tr, mfem::Vector &elvect)
