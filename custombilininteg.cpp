@@ -27,14 +27,8 @@ namespace mfemplus
 
         MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
 
-#ifdef MFEM_THREAD_SAFE
-        DenseMatrix dshape(dof, dim), gshape(dof, dim), pelmat(dof);
-        Vector divshape(dim * dof);
-#else
         dshape.SetSize(dof, dim);
         gshape.SetSize(dof, dim);
-
-#endif
 
         elmat.SetSize(dof * dim);
 
@@ -46,10 +40,12 @@ namespace mfemplus
         }
 
         elmat = 0.0;
-        mfem::DenseMatrix C(str_comp, str_comp);  // Stiffness in Voigt form
-        mfem::DenseMatrix B(str_comp, dof * dim); // Strain displacement matrix
-        mfem::DenseMatrix CB(str_comp, dof * dim);
-        mfem::DenseMatrix elmat_intpt(dof * dim, dof * dim);
+        C.SetSize(str_comp, str_comp);  // Stiffness in Voigt form
+        B.SetSize(str_comp, dof * dim); // Strain displacement matrix
+        CB.SetSize(str_comp, dof * dim);
+        elmat_input.SetSize(dof * dim, dof * dim);
+        C = 0.0;
+        B = 0.0;
 
         for (int i = 0; i < ir->GetNPoints(); i++)
         {
@@ -61,35 +57,41 @@ namespace mfemplus
             w = ip.weight * Trans.Weight();                      // Quadrature weights
             mfem::Mult(dshape, Trans.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
 
-            NU = poisson_ratio->Eval(Trans, ip);
-            E = young_mod->Eval(Trans, ip); // The elastic constants are evaluated at each integration point.
+            if (i == 0)
+            {
+                NU = poisson_ratio->Eval(Trans, ip);
+                E = young_mod->Eval(Trans, ip); // The elastic constants are evaluated at each integration point.
+            }
 
             // Here we want to use Voigt notation to speed up the assembly process.
             // For this, we need the strain displacement matrix B. The element stiffness can be computed as
             // \int_{\Omega} B^T C B. In Voigt form, the stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
             // The B matrix as 3 rows in 2D and 6 rowd in 3D.
 
-            if (dim == 2)
+            switch (dim)
             {
-                C = 0.0;
-                // Plane strain
-                C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
-                C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
-                C(2, 2) = E / (2 * (1 + NU));
+            case 2:
+                if (i == 0)
+                {
+                    switch (planeApprox)
+                    {
+                    case 0:
+                        // Plane strain
+                        C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
+                        C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
+                        C(2, 2) = E / (2 * (1 + NU));
+                        break;
 
-                // Plane stress
-                // C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
-                // C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
-                // C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
-
-                // 3D to 2D, but this is improper
-                // C(0, 0) = C(1, 1) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
-                // C(0, 1) = C(1, 0) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
-                // C(2, 2) =  E / (2 * (1 + NU));
+                    case 1:
+                        // Plane stress
+                        C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                        C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                        C(2, 2) = E / (2 * (1 + NU));
+                        break;
+                    }
+                }
 
                 // In 2D, we have 3 unique strain components.
-                B = 0.0;
-
                 for (int spf = 0; spf < dof; spf++)
                 {
                     B(0, spf) = gshape(spf, 0);
@@ -97,18 +99,17 @@ namespace mfemplus
                     B(2, spf) = gshape(spf, 1);
                     B(2, spf + dof) = gshape(spf, 0);
                 }
-            }
+                break;
 
-            else if (dim == 3)
-            {
-                C = 0.0;
-                C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
-                C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
-                C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
+            case 3:
+                if (i == 0)
+                {
+                    C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                    C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                    C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
+                }
 
                 // In 3D, we have 6 unique strain components.
-                B = 0.0;
-
                 for (int spf = 0; spf < dof; spf++)
                 {
                     B(0, spf) = gshape(spf, 0);
@@ -121,10 +122,11 @@ namespace mfemplus
                     B(5, spf) = gshape(spf, 1);
                     B(5, spf + dof) = gshape(spf, 0);
                 }
+                break;
             }
             mfem::Mult(C, B, CB);              // CB is 6 x (dof * dim)
-            mfem::MultAtB(B, CB, elmat_intpt); // elmat_add is (dof*dim) x (dof*dim)
-            elmat.Add(w, elmat_intpt);
+            mfem::MultAtB(B, CB, elmat_input); // elmat_add is (dof*dim) x (dof*dim)
+            elmat.Add(w, elmat_input);
         }
     }
 
@@ -138,26 +140,26 @@ namespace mfemplus
 
         MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
 
-#ifdef MFEM_THREAD_SAFE
-        DenseMatrix dshape(dof, dim), gshape(dof, dim), pelmat(dof);
-        Vector divshape(dim * dof);
-#else
         dshape.SetSize(dof, dim);
         gshape.SetSize(dof, dim);
 
-#endif
-
         elmat.SetSize(dof * dim);
+        elmat = 0.0;
 
         const mfem::IntegrationRule *ir = GetIntegrationRule(el, Trans);
         if (ir == NULL)
         {
-            int order = 3 * Trans.OrderGrad(&el); // correct order?
+            int order = 2 * Trans.OrderGrad(&el); // correct order?
             ir = &mfem::IntRules.Get(el.GetGeomType(), order);
         }
 
-        elmat = 0.0;
-        mfem::DenseMatrix B(str_comp, dof * dim); // Strain displacement matrix
+        B.SetSize(str_comp, dof * dim); // Strain displacement matrix
+        C.SetSize(str_comp, str_comp);  // Elasticity matrix
+        CB.SetSize(str_comp, dof * dim);
+        elmat_input.SetSize(dof * dim, dof * dim);
+        B = 0.0;
+        C = 0.0;
+
         for (int i = 0; i < ir->GetNPoints(); i++)
         {
             const mfem::IntegrationPoint &ip = ir->IntPoint(i);
@@ -173,14 +175,12 @@ namespace mfemplus
             // \int_{\Omega} B^T C B. In Voigt form, the stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
             // The B matrix as 3 rows in 2D and 6 rowd in 3D.
 
-            mfem::DenseMatrix C(str_comp, str_comp);
             stiffness->Eval(C, Trans, ip); // The stiffness matrix is evaluated at each integration point.
 
-            if (dim == 2) // Plain strain
+            switch (dim)
             {
+            case 2:
                 // In 2D, we have 3 unique strain components.
-                B = 0.0;
-
                 for (int spf = 0; spf < dof; spf++)
                 {
                     B(0, spf) = gshape(spf, 0);
@@ -188,13 +188,10 @@ namespace mfemplus
                     B(2, spf) = gshape(spf, 1);
                     B(2, spf + dof) = gshape(spf, 0);
                 }
-            }
+                break;
 
-            else if (dim == 3)
-            {
+            case 3:
                 // In 3D, we have 6 unique strain components.
-                B = 0.0;
-
                 for (int spf = 0; spf < dof; spf++)
                 {
                     B(0, spf) = gshape(spf, 0);
@@ -207,12 +204,12 @@ namespace mfemplus
                     B(5, spf) = gshape(spf, 1);
                     B(5, spf + dof) = gshape(spf, 0);
                 }
+                break;
             }
-            mfem::DenseMatrix CB(str_comp, dof * dim);
-            mfem::DenseMatrix elmat_intpt(dof * dim, dof * dim);
+
             mfem::Mult(C, B, CB);              // CB is 6 x (dof * dim)
-            mfem::MultAtB(B, CB, elmat_intpt); // elmat_add is (dof*dim) x (dof*dim)
-            elmat.Add(w, elmat_intpt);
+            mfem::MultAtB(B, CB, elmat_input); // elmat_add is (dof*dim) x (dof*dim)
+            elmat.Add(w, elmat_input);
         }
     }
 
@@ -226,14 +223,9 @@ namespace mfemplus
 
         MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
 
-#ifdef MFEM_THREAD_SAFE
-        DenseMatrix dshape(dof, dim), gshape(dof, dim), pelmat(dof);
-        Vector divshape(dim * dof);
-#else
         dshape.SetSize(dof, dim);
         gshape.SetSize(dof, dim);
         divshape.SetSize(dim * dof);
-#endif
 
         elmat.SetSize(dof * dim);
 
@@ -245,7 +237,11 @@ namespace mfemplus
         }
 
         elmat = 0.0;
-        mfem::DenseMatrix B(str_comp, dof * dim), B_vol(str_comp, dof * dim); // Strain displacement matrix
+        B.SetSize(str_comp, dof * dim);     // Strain displacement matrix
+        B_vol.SetSize(str_comp, dof * dim); // Strain displacement matrix for volumetric
+        B = 0.0;
+        B_vol = 0.0;
+        elmat_input.SetSize(dof * dim, dof * dim);
 
         for (int i = 0; i < ir->GetNPoints(); i++)
         {
@@ -266,16 +262,12 @@ namespace mfemplus
             if (dim == 2)
             {
                 // In 2D, we are using the plane strain assumption. The deviatoric strain has 4 unique components, not 3!
-                B = 0.0;
-                B_vol = 0.0;
-
                 for (int spf = 0; spf < dof; spf++)
                 {
                     B(0, spf) = gshape(spf, 0);
                     B(1, spf + dof) = gshape(spf, 1);
                     B(3, spf) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 1); // This line's index is 3 for construction of deviatoric strain.
                     B(3, spf + dof) = (1.0 / pow(2.0, 0.5)) * gshape(spf, 0);
-
                     // There a factor of 1 / sqrt(2) and not 1 / 2 for the shear components because
                     // in Voigt form the strain vector has coefficients of sqrt(2) for shear strains.
                 }
@@ -294,9 +286,6 @@ namespace mfemplus
             else if (dim == 3)
             {
                 // In 3D, we have 6 unique strain components.
-                B = 0.0;
-                B_vol = 0.0;
-
                 for (int spf = 0; spf < dof; spf++)
                 {
                     B(0, spf) = gshape(spf, 0);
@@ -322,11 +311,9 @@ namespace mfemplus
                     }
                 }
             }
-            mfem::DenseMatrix B_dev(B);
-            B_dev.Add(-1.0 / 3, B_vol);
-            mfem::DenseMatrix elmat_intpt(dof * dim, dof * dim);
-            mfem::MultAtB(B_dev, B_dev, elmat_intpt);
-            elmat.Add(w * 2.0 * MU, elmat_intpt);
+            B.Add(-1.0 / 3, B_vol);
+            mfem::MultAtB(B, B, elmat_input);
+            elmat.Add(w * 2.0 * MU, elmat_input);
         }
     }
 
@@ -429,17 +416,6 @@ namespace mfemplus
     };
 
     //-----------------------------------------------------------------------------------------------------------------------
-    GLMassIntegrator::GLMassIntegrator(const mfem::IntegrationRule *ir)
-        : mfem::BilinearFormIntegrator(ir), Q(nullptr), maps(nullptr), geom(nullptr)
-    {
-        // static GLMassIntegrator::Kernels kernels;
-    }
-
-    GLMassIntegrator::GLMassIntegrator(mfem::Coefficient &q, const mfem::IntegrationRule *ir)
-        : GLMassIntegrator(ir)
-    {
-        Q = &q;
-    }
 
     void GLMassIntegrator::AssembleElementMatrix(const mfem::FiniteElement &el, mfem::ElementTransformation &Trans,
                                                  mfem::DenseMatrix &elmat)
@@ -497,31 +473,22 @@ namespace mfemplus
     void IsotropicElasticityDamageIntegrator::AssembleElementMatrix(
         const mfem::FiniteElement &el, mfem::ElementTransformation &Trans, mfem::DenseMatrix &elmat)
     {
-        // uses spectral split of elastic strain energy.
         int dof = el.GetDof();
         int dim = el.GetDim();
         int str_comp = (dim == 2) ? 3 : 6;
+        int elnum = Trans.ElementNo;
         mfem::real_t w, E, NU;
 
-        MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
-
-#ifdef MFEM_THREAD_SAFE
-        DenseMatrix dshape(dof, dim), gshape(dof, dim), pelmat(dof);
-        Vector divshape(dim * dof);
-#else
         dshape.SetSize(dof, dim);
         gshape.SetSize(dof, dim);
         shape.SetSize(dof);
-
-#endif
         elmat.SetSize(dof * dim);
+        elmat = 0.0;
 
-        mfem::Array<int> eldofs(dof); // scalar for damage
-        mfem::Vector eldofdamage(dof);
+        eldofs.SetSize(dof); // scalar for damage
+        eldofdamage.SetSize(dof);
         eldofs = 0;
         eldofdamage = 0.0;
-
-        int elnum = Trans.ElementNo;
 
         damage_fes->GetElementDofs(elnum, eldofs);
 
@@ -540,18 +507,18 @@ namespace mfemplus
             ir = &mfem::IntRules.Get(el.GetGeomType(), order);
         }
 
-        elmat = 0.0;
-        mfem::DenseMatrix C(str_comp, str_comp);  // Stiffness in Voigt form
-        mfem::DenseMatrix B(str_comp, dof * dim); // Strain displacement matrix
-        mfem::DenseMatrix CB(str_comp, dof * dim);
-        mfem::DenseMatrix elmat_intpt(dof * dim, dof * dim);
+        C.SetSize(str_comp, str_comp);  // Stiffness in Voigt form
+        B.SetSize(str_comp, dof * dim); // Strain displacement matrix
+        CB.SetSize(str_comp, dof * dim);
+        elmat_input.SetSize(dof * dim, dof * dim);
+        C = 0.0;
+        B = 0.0;
         double damage_value, degradation_constant;
 
         for (int i = 0; i < ir->GetNPoints(); i++)
         {
             const mfem::IntegrationPoint &ip = ir->IntPoint(i);
 
-            // el.CalcShape(ip, shape);
             // k_eps_val not expected to change spatially.
             // multiply degradation constant to the final element matrix.
 
@@ -559,41 +526,45 @@ namespace mfemplus
 
             Trans.SetIntPoint(&ip);
             el.CalcPhysShape(Trans, shape);
-            damage_value = mfem::InnerProduct(shape, eldofdamage);
+            damage_value = mfem::InnerProduct(shape, eldofdamage);                            // Should this be physical or reference shape values? Should be the same.
             degradation_constant = ((1.0 - damage_value) * (1.0 - damage_value)) + k_epsilon; // (1 - d)^{2} + k_{\epsilon}
 
             w = ip.weight * Trans.Weight();                      // Quadrature weights
             mfem::Mult(dshape, Trans.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
 
-            NU = poisson_ratio->Eval(Trans, ip);
-            E = young_mod->Eval(Trans, ip); // The elastic constants are evaluated at each integration point.
-
+            if (i == 0)
+            {
+                NU = poisson_ratio->Eval(Trans, ip);
+                E = young_mod->Eval(Trans, ip); // The elastic constants are evaluated at each integration point.
+            }
             // Here we want to use Voigt notation to speed up the assembly process.
             // For this, we need the strain displacement matrix B. The element stiffness can be computed as
             // \int_{\Omega} B^T C B. In Voigt form, the stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
             // The B matrix as 3 rows in 2D and 6 rowd in 3D.
 
-            if (dim == 2)
+            switch (dim)
             {
-                C = 0.0;
-                // Plane strain
-                // C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
-                // C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
-                // C(2, 2) = E / (2 * (1 + NU));
-
-                // Plane stress
-                C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
-                C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
-                C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
-
-                // 3D to 2D, but this is improper
-                // C(0, 0) = C(1, 1) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
-                // C(0, 1) = C(1, 0) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
-                // C(2, 2) =  E / (2 * (1 + NU));
+            case 2:
+                if (i == 0)
+                {
+                    switch (planeApprox)
+                    {
+                    case 0:
+                        // Plane strain
+                        C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
+                        C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
+                        C(2, 2) = E / (2 * (1 + NU));
+                        break;
+                    case 1:
+                        // Plane stress
+                        C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                        C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                        C(2, 2) = E / (2 * (1 + NU));
+                        break;
+                    }
+                }
 
                 // In 2D, we have 3 unique strain components.
-                B = 0.0;
-
                 for (int spf = 0; spf < dof; spf++)
                 {
                     B(0, spf) = gshape(spf, 0);
@@ -601,17 +572,17 @@ namespace mfemplus
                     B(2, spf) = gshape(spf, 1);
                     B(2, spf + dof) = gshape(spf, 0);
                 }
-            }
+                break;
 
-            else if (dim == 3)
-            {
-                C = 0.0;
-                C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
-                C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
-                C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
+            case 3:
 
+                if (i == 0)
+                {
+                    C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                    C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                    C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
+                }
                 // In 3D, we have 6 unique strain components.
-                B = 0.0;
 
                 for (int spf = 0; spf < dof; spf++)
                 {
@@ -625,11 +596,12 @@ namespace mfemplus
                     B(5, spf) = gshape(spf, 1);
                     B(5, spf + dof) = gshape(spf, 0);
                 }
+                break;
             }
 
             mfem::Mult(C, B, CB);                             // CB is 6 x (dof * dim)
-            mfem::MultAtB(B, CB, elmat_intpt);                // elmat_add is (dof*dim) x (dof*dim)
-            elmat.Add(w * degradation_constant, elmat_intpt); // multiplied by the degradation constant.
+            mfem::MultAtB(B, CB, elmat_input);                // elmat_add is (dof*dim) x (dof*dim)
+            elmat.Add(w * degradation_constant, elmat_input); // multiplied by the degradation constant.
         }
     }
 
@@ -639,25 +611,17 @@ namespace mfemplus
         int dof = el.GetDof();
         int dim = el.GetDim();
         int str_comp = (dim == 2) ? 3 : 6;
-        mfem::real_t w, E, NU;
+        int elnum = Trans.ElementNo;
+        double w, E, NU;
 
-        MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
-
-#ifdef MFEM_THREAD_SAFE
-        DenseMatrix dshape(dof, dim), gshape(dof, dim), pelmat(dof);
-        Vector divshape(dim * dof);
-#else
         dshape.SetSize(dof, dim);
         gshape.SetSize(dof, dim);
         shape.SetSize(dof);
-
-#endif
         elmat.SetSize(dof);
+        elmat = 0.0;
 
-        mfem::Array<int> eldofs(dof * dim); // vector valued for displacement
-        mfem::Vector eldofdisp(dof * dim);
-
-        int elnum = Trans.ElementNo;
+        eldofs.SetSize(dof * dim); // vector valued for displacement
+        eldofdisp.SetSize(dof * dim);
 
         disp_fes->GetElementVDofs(elnum, eldofs);
 
@@ -675,15 +639,19 @@ namespace mfemplus
             ir = &mfem::IntRules.Get(el.GetGeomType(), order);
         }
 
-        elmat = 0.0;
-        mfem::DenseMatrix C(str_comp, str_comp);   // Stiffness in Voigt form
-        mfem::DenseMatrix B(str_comp, dof * dim);  // Strain displacement matrix
-        mfem::DenseMatrix CB(str_comp, dof * dim); // Stiffness times strain displacement
-        mfem::Vector CBu(str_comp);
-        mfem::Vector Bu(str_comp);
-        mfem::DenseMatrix elmat_intpt(dof, dof);
+        C.SetSize(str_comp, str_comp);   // Stiffness in Voigt form
+        B.SetSize(str_comp, dof * dim);  // Strain displacement matrix
+        CB.SetSize(str_comp, dof * dim); // Stiffness times strain displacement
+        CBu.SetSize(str_comp);
+        Bu.SetSize(str_comp);
+        body_pressure.SetSize(str_comp);
+        elmat_input.SetSize(dof, dof);
+        C = 0.0;
+        B = 0.0;
+        body_pressure = 0.0;
+
         double lambda1(0.0), lambda2(0.0), lambda3(0.0);
-        double strain_energy(0.0);
+        double strain_energy(0.0), pressure_coeff(0.0), pressure_energy(0.0), total_energy(0.0);
 
         for (int i = 0; i < ir->GetNPoints(); i++)
         {
@@ -697,29 +665,50 @@ namespace mfemplus
 
             mfem::Mult(dshape, Trans.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
 
-            NU = poisson_ratio->Eval(Trans, ip);
-            E = young_mod->Eval(Trans, ip); // The elastic constants are evaluated at each integration point.
+            if (i == 0)
+            {
+                NU = poisson_ratio->Eval(Trans, ip);
+                E = young_mod->Eval(Trans, ip); // The elastic constants are evaluated at the first integration point.
+            }
 
             // Here we want to use Voigt notation to speed up the assembly process.
             // For this, we need the strain displacement matrix B. The element stiffness can be computed as
             // \int_{\Omega} B^T C B. In Voigt form, the stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
             // The B matrix as 3 rows in 2D and 6 rowd in 3D.
 
-            if (dim == 2)
+            switch (dim)
             {
-                C = 0.0;
-                // Plane strain
-                // C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
-                // C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
-                // C(2, 2) = E / (2 * (1 + NU));
+            case 2:
+                // volumetric pressure. Evaluate at each integration point.
+                if (volumetric_pressure != nullptr)
+                {
+                    pressure_coeff = volumetric_pressure->Eval(Trans, ip);
+                    body_pressure(0) = pressure_coeff;
+                    body_pressure(1) = pressure_coeff;
+                }
 
-                // Plane stress
-                C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
-                C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
-                C(2, 2) = (E * (1 - NU) / (2 * (1 - pow(NU, 2))));
+                if (i == 0)
+                {
+                    switch (planeApprox)
+                    {
+                    case 0:
+                        // Plane strain
+                        C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
+                        C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
+                        C(2, 2) = E / (2 * (1 + NU));
+                        break;
+
+                    case 1:
+                        // Plane stress
+                        C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                        C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                        C(2, 2) = E / (2 * (1 + NU));
+                        break;
+                    }
+                }
 
                 // In 2D, we have 3 unique strain components.
-                B = 0.0;
+
                 for (int spf = 0; spf < dof; spf++)
                 {
                     B(0, spf) = gshape(spf, 0);
@@ -727,17 +716,25 @@ namespace mfemplus
                     B(2, spf) = gshape(spf, 1);
                     B(2, spf + dof) = gshape(spf, 0);
                 }
-            }
+                break;
 
-            else if (dim == 3)
-            {
-                C = 0.0;
-                C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
-                C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
-                C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
+            case 3:
+                if (volumetric_pressure != nullptr)
+                {
+                    pressure_coeff = volumetric_pressure->Eval(Trans, ip);
+                    body_pressure(0) = pressure_coeff;
+                    body_pressure(1) = pressure_coeff;
+                    body_pressure(2) = pressure_coeff;
+                }
+
+                if (i == 0)
+                {
+                    C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                    C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                    C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
+                }
 
                 // In 3D, we have 6 unique strain components.
-                B = 0.0;
                 for (int spf = 0; spf < dof; spf++)
                 {
                     B(0, spf) = gshape(spf, 0);
@@ -750,43 +747,51 @@ namespace mfemplus
                     B(5, spf) = gshape(spf, 1);
                     B(5, spf + dof) = gshape(spf, 0);
                 }
+                break;
             }
 
             // Now compute the quantity C_{ijkl} u_{k,l} u_{i,j}. Using Voigt notation, of course...
             // This is equivalent to.
             mfem::Mult(C, B, CB);    // CB is 6 x (dof * dim)
             CB.Mult(eldofdisp, CBu); // CBu has dimension strain_comps. This is the stress vector.
-            // B.Mult(eldofdisp, Bu);   // Bu has dimension strain_comps. This is the strain vector.
-            // strain_energy = mfem::InnerProduct(CBu, Bu);
+            // For tensile loading, no need for Gershgorin check.
+
+            B.Mult(eldofdisp, Bu);                       // Bu has dimension strain_comps. This is the strain vector.
+            strain_energy = mfem::InnerProduct(CBu, Bu); // This is twice the strain energy
+            if (volumetric_pressure != nullptr)
+            {
+                pressure_energy = mfem::InnerProduct(body_pressure, Bu);
+            }
+            total_energy = strain_energy - 2 * pressure_energy;
 
             // Gershgorin circle theorem for stress. Alternatively, use history variable for strain energy.
-            if (dim == 2)
-            {
-                // In 2D lambda min is lambda1.
-                // lambda1 = (CBu(0) + CBu(1)) / 2.0 - std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
-                // lambda2 = (CBu(0) + CBu(1)) / 2.0 + std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
-                // lambda3 = lambda1 + 1.0;
+            // if (dim == 2)
+            // {
+            //     // In 2D lambda min is lambda1.
+            //     lambda1 = (CBu(0) + CBu(1)) / 2.0 - std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
+            //     lambda2 = (CBu(0) + CBu(1)) / 2.0 + std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
+            //     lambda3 = lambda1 + 1.0;
 
-                lambda1 = CBu(0) - std::abs(CBu(3));
-                lambda2 = CBu(1) - std::abs(CBu(3));
-                lambda3 = lambda1 + lambda2; // artificially making it greater than both.
-            }
-            if (dim == 3)
-            {
-                lambda1 = CBu(0) - std::abs(CBu(5)) - std::abs(CBu(4)); // \lambda_{1} = \sigma_{11} - |\sigma_{12}| - |\sigma_{13}|
-                lambda2 = CBu(1) - std::abs(CBu(5)) - std::abs(CBu(3)); // \lambda_{2} = \sigma_{22} - |\sigma_{12}| - |\sigma_{23}|
-                lambda3 = CBu(2) - std::abs(CBu(4)) - std::abs(CBu(3)); // \lambda_{3} = \sigma_{33} - |\sigma_{13}| - |\sigma_{23}|
-            }
+            //     // lambda1 = CBu(0) - std::abs(CBu(3));
+            //     // lambda2 = CBu(1) - std::abs(CBu(3));
+            //     // lambda3 = lambda1 + lambda2; // artificially making it greater than both.
+            // }
+            // else if (dim == 3)
+            // {
+            //     lambda1 = CBu(0) - std::abs(CBu(5)) - std::abs(CBu(4)); // \lambda_{1} = \sigma_{11} - |\sigma_{12}| - |\sigma_{13}|
+            //     lambda2 = CBu(1) - std::abs(CBu(5)) - std::abs(CBu(3)); // \lambda_{2} = \sigma_{22} - |\sigma_{12}| - |\sigma_{23}|
+            //     lambda3 = CBu(2) - std::abs(CBu(4)) - std::abs(CBu(3)); // \lambda_{3} = \sigma_{33} - |\sigma_{13}| - |\sigma_{23}|
+            // }
 
-            if (std::min({lambda1, lambda2, lambda3}) > 0)
-            {
-                B.Mult(eldofdisp, Bu); // Bu has dimension strain_comps. This is the strain vector.
-                strain_energy = mfem::InnerProduct(CBu, Bu);
-            }
-            else
-                strain_energy = 1.0e-40;
+            // if (std::min({lambda1, lambda2, lambda3}) > 0)
+            // {
+            //     B.Mult(eldofdisp, Bu); // Bu has dimension strain_comps. This is the strain vector.
+            //     strain_energy = mfem::InnerProduct(CBu, Bu);
+            // }
+            // else
+            //     strain_energy = 1.0e-20;
 
-            mfem::AddMult_a_VVt(w * strain_energy, shape, elmat); // multiplied by twice the strain energy.
+            mfem::AddMult_a_VVt(w * total_energy, shape, elmat); // multiplied by twice the strain energy - twice the pressure energy.
         }
     }
 }

@@ -26,40 +26,27 @@ namespace mfemplus
 
     protected:
         mfem::Coefficient *young_mod, *poisson_ratio;
+        mfem::DenseMatrix C, B, CB, elmat_input;
 
-    private:
-#ifndef MFEM_THREAD_SAFE
         mfem::Vector shape;
         mfem::DenseMatrix dshape, gshape;
-#endif
 
-        // PA extension
-
-        const mfem::DofToQuad *maps;        ///< Not owned
-        const mfem::GeometricFactors *geom; ///< Not owned
-        int vdim, ndofs;
-        const mfem::FiniteElementSpace *fespace; ///< Not owned.
-
-        std::unique_ptr<mfem::QuadratureSpace> q_space;
-        /// Coefficients projected onto q_space
-        std::unique_ptr<mfem::CoefficientVector> E_quad, nu_quad;
-        /// Workspace vector
-        std::unique_ptr<mfem::QuadratureFunction> q_vec;
-
-        /// Set up the quadrature space
-        void SetUpQuadratureSpaceAndCoefficients(const mfem::FiniteElementSpace &fes);
+        // plane strain is 0, plane stress is 1.
+        int planeApprox;
 
     public:
-        IsotropicElasticityIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu)
+        IsotropicElasticityIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, int plane_approximation = 0) : young_mod(&e), poisson_ratio(&nu), planeApprox(plane_approximation)
         {
-            young_mod = &e;
-            poisson_ratio = &nu;
+            // int dof = el.GetDof();
+            // int dim = el.GetDim();
+            // int str_comp = (dim == 2) ? 3 : 6;
+            // C.SetSize(str_comp, str_comp);  // Stiffness in Voigt form
+            // B.SetSize(str_comp, dof * dim); // Strain displacement matrix
+            // CB.SetSize(str_comp, dof * dim);
+            // elmat_input.SetSize(dof * dim, dof * dim);
         }
-        IsotropicElasticityIntegrator() {};
 
-        void AssembleElementMatrix(const mfem::FiniteElement &el,
-                                   mfem::ElementTransformation &Tr,
-                                   mfem::DenseMatrix &elmat) override;
+        void AssembleElementMatrix(const mfem::FiniteElement &el, mfem::ElementTransformation &Tr, mfem::DenseMatrix &elmat) override;
     };
 
     /** Integrator for anistotropic linear elasticity using general stiffness tensor. A total of 21 elastic constants need to be prescribed:
@@ -73,32 +60,13 @@ namespace mfemplus
 
     protected:
         mfem::MatrixCoefficient *stiffness;
+        mfem::DenseMatrix C, B, CB, elmat_input;
 
-    private:
-#ifndef MFEM_THREAD_SAFE
         mfem::Vector shape;
         mfem::DenseMatrix dshape, gshape;
-#endif
-
-        // PA extension
-
-        const mfem::DofToQuad *maps;        ///< Not owned
-        const mfem::GeometricFactors *geom; ///< Not owned
-        int vdim, ndofs;
-        const mfem::FiniteElementSpace *fespace; ///< Not owned.
-
-        std::unique_ptr<mfem::QuadratureSpace> q_space;
-        /// Workspace vector
-        std::unique_ptr<mfem::QuadratureFunction> q_vec;
-
-        /// Set up the quadrature space
-        void SetUpQuadratureSpaceAndCoefficients(const mfem::FiniteElementSpace &fes);
 
     public:
-        AnisotropicElasticityIntegrator(mfem::MatrixCoefficient &CMat)
-        {
-            stiffness = &CMat;
-        }
+        AnisotropicElasticityIntegrator(mfem::MatrixCoefficient &CMat) : stiffness(&CMat) {}
 
         void AssembleElementMatrix(const mfem::FiniteElement &el,
                                    mfem::ElementTransformation &Tr,
@@ -116,28 +84,9 @@ namespace mfemplus
     protected:
         mfem::Coefficient *shear_mod;
 
-    private:
-#ifndef MFEM_THREAD_SAFE
         mfem::Vector shape, divshape;
         mfem::DenseMatrix dshape, gshape;
-#endif
-
-        // PA extension
-
-        const mfem::DofToQuad *maps;        ///< Not owned
-        const mfem::GeometricFactors *geom; ///< Not owned
-        int vdim, ndofs;
-        const mfem::FiniteElementSpace *fespace; ///< Not owned.
-
-        std::unique_ptr<mfem::QuadratureSpace> q_space;
-        /// Coefficients projected onto q_space
-        std::unique_ptr<mfem::CoefficientVector> nu_quad;
-        /// Workspace vector
-        std::unique_ptr<mfem::QuadratureFunction> q_vec;
-
-        /// Set up the quadrature space
-        void SetUpQuadratureSpaceAndCoefficients(const mfem::FiniteElementSpace &fes);
-
+        mfem::DenseMatrix B, B_vol, B_dev, elmat_input; // Strain displacement matrix
     public:
         IsotropicElasticityDeviatoricIntegrator(mfem::Coefficient &mu)
         {
@@ -187,43 +136,24 @@ namespace mfemplus
         };
 
     public:
-        GLMassIntegrator(const mfem::IntegrationRule *ir = nullptr);
+        GLMassIntegrator(const mfem::IntegrationRule *ir)
+            : mfem::BilinearFormIntegrator(ir), Q(nullptr), maps(nullptr), geom(nullptr)
+        {
+            // static GLMassIntegrator::Kernels kernels;
+        }
 
-        /// Construct a mass integrator with coefficient q
-        GLMassIntegrator(mfem::Coefficient &q, const mfem::IntegrationRule *ir = NULL);
+        // Construct a mass integrator with coefficient q
+        GLMassIntegrator(mfem::Coefficient &q, const mfem::IntegrationRule *ir)
+            : GLMassIntegrator(ir)
+        {
+            Q = &q;
+        }
 
         /** Given a particular Finite Element computes the element mass matrix
             elmat. */
         void AssembleElementMatrix(const mfem::FiniteElement &el,
                                    mfem::ElementTransformation &Trans,
                                    mfem::DenseMatrix &elmat) override;
-
-        // void AssembleMF(const mfem::FiniteElementSpace &fes) override;
-
-        // using BilinearFormIntegrator::AssemblePA;
-        // void AssemblePA(const mfem::FiniteElementSpace &fes) override;
-
-        // void AssemblePABoundary(const mfem::FiniteElementSpace &fes) override;
-
-        // void AssembleEA(const mfem::FiniteElementSpace &fes, mfem::Vector &emat,
-        //                 const bool add) override;
-
-        // virtual void AssembleEABoundary(const mfem::FiniteElementSpace &fes, mfem::Vector &emat,
-        //                                 const bool add) override;
-
-        // virtual void AssembleDiagonalPA(mfem::Vector &diag) override;
-
-        // void AssembleDiagonalMF(mfem::Vector &diag) override;
-
-        // void AddMultMF(const mfem::Vector &, mfem::Vector &) const override;
-
-        // void AddMultPA(const mfem::Vector &, mfem::Vector &) const override;
-
-        // void AddMultTransposePA(const mfem::Vector &, mfem::Vector &) const override;
-
-        // static const mfem::IntegrationRule &GetRule(const mfem::FiniteElement &trial_fe,
-        //                                             const mfem::FiniteElement &test_fe,
-        //                                             const mfem::ElementTransformation &Trans);
 
         bool SupportsCeed() const override { return mfem::DeviceCanUseCeed(); }
 
@@ -235,15 +165,6 @@ namespace mfemplus
             ApplyPAKernels::Specialization<DIM, D1D, Q1D>::Add();
             DiagonalPAKernels::Specialization<DIM, D1D, Q1D>::Add();
         }
-
-    protected:
-        // const mfem::IntegrationRule *GetDefaultIntegrationRule(
-        //     const mfem::FiniteElement &trial_fe,
-        //     const mfem::FiniteElement &test_fe,
-        //     const mfem::ElementTransformation &trans) const override
-        // {
-        //     return &GetRule(trial_fe, test_fe, trans);
-        // }
     };
 
     /** Modified integrator for the bilinear form $a(u,v) := (Q u, v)$,
@@ -312,38 +233,15 @@ namespace mfemplus
         mfem::real_t k_epsilon;
         mfem::GridFunction *damage_gf;
         mfem::FiniteElementSpace *damage_fes;
-
-    private:
-#ifndef MFEM_THREAD_SAFE
+        mfem::Array<int> eldofs; // scalar for damage
+        mfem::Vector eldofdamage;
+        mfem::DenseMatrix C, B, CB, elmat_input; // Stiffness in Voigt form
+        int planeApprox;
         mfem::Vector shape;
         mfem::DenseMatrix dshape, gshape;
-#endif
-
-        // PA extension
-
-        const mfem::DofToQuad *maps;        ///< Not owned
-        const mfem::GeometricFactors *geom; ///< Not owned
-        int vdim, ndofs;
-        const mfem::FiniteElementSpace *fespace; ///< Not owned.
-
-        std::unique_ptr<mfem::QuadratureSpace> q_space;
-        /// Coefficients projected onto q_space
-        std::unique_ptr<mfem::CoefficientVector> E_quad, nu_quad;
-        /// Workspace vector
-        std::unique_ptr<mfem::QuadratureFunction> q_vec;
-
-        /// Set up the quadrature space.
 
     public:
-        IsotropicElasticityDamageIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::real_t k_eps, mfem::GridFunction &damage_gridfunc, mfem::FiniteElementSpace *damage_fespace)
-        {
-            young_mod = &e;
-            poisson_ratio = &nu;
-            k_epsilon = k_eps; // Not a coefficient object, since not expected to spatially vary.
-            damage_gf = &damage_gridfunc;
-            damage_fes = damage_fespace;
-        }
-        IsotropicElasticityDamageIntegrator() {};
+        IsotropicElasticityDamageIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::real_t k_eps, mfem::GridFunction &damage_gridfunc, mfem::FiniteElementSpace *damage_fespace, int plane_approximation = 0) : young_mod(&e), poisson_ratio(&nu), k_epsilon(k_eps), damage_gf(&damage_gridfunc), damage_fes(damage_fespace), planeApprox(plane_approximation) {};
 
         void AssembleElementMatrix(const mfem::FiniteElement &el,
                                    mfem::ElementTransformation &Tr,
@@ -360,39 +258,23 @@ namespace mfemplus
 
     protected:
         mfem::Coefficient *young_mod, *poisson_ratio;
+        mfem::Coefficient *volumetric_pressure;
         mfem::GridFunction *disp_gf;
         mfem::FiniteElementSpace *disp_fes;
+        mfem::Array<int> eldofs;
+        mfem::Vector eldofdamage;
+        mfem::Vector eldofdisp;
+        mfem::Vector CBu, Bu;
+        mfem::DenseMatrix C, B, CB, elmat_input; // Stiffness in Voigt form
+        mfem::Vector body_pressure;
 
-    private:
-#ifndef MFEM_THREAD_SAFE
+        int planeApprox, GershgorinCheck;
+
         mfem::Vector shape;
         mfem::DenseMatrix dshape, gshape;
-#endif
-
-        // PA extension
-
-        const mfem::DofToQuad *maps;        ///< Not owned
-        const mfem::GeometricFactors *geom; ///< Not owned
-        int vdim, ndofs;
-        const mfem::FiniteElementSpace *fespace; ///< Not owned.
-
-        std::unique_ptr<mfem::QuadratureSpace> q_space;
-        /// Coefficients projected onto q_space
-        std::unique_ptr<mfem::CoefficientVector> E_quad, nu_quad;
-        /// Workspace vector
-        std::unique_ptr<mfem::QuadratureFunction> q_vec;
-
-        /// Set up the quadrature space.
 
     public:
-        IsotropicStrainEnergyDamageIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &disp_gridfunc, mfem::FiniteElementSpace *disp_fespace)
-        {
-            young_mod = &e;
-            poisson_ratio = &nu;
-            disp_gf = &disp_gridfunc;
-            disp_fes = disp_fespace;
-        }
-        IsotropicStrainEnergyDamageIntegrator() {};
+        IsotropicStrainEnergyDamageIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &disp_gridfunc, mfem::FiniteElementSpace *disp_fespace, int plane_approximation = 0, mfem::Coefficient *vol_press = nullptr) : young_mod(&e), poisson_ratio(&nu), disp_gf(&disp_gridfunc), disp_fes(disp_fespace), planeApprox(plane_approximation), volumetric_pressure(vol_press) {};
 
         void AssembleElementMatrix(const mfem::FiniteElement &el,
                                    mfem::ElementTransformation &Tr,

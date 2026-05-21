@@ -34,7 +34,14 @@ namespace mfemplus
         mfem::ElementTransformation *el_trans;
         int num_dofs, dimension;
         mfem::Array<int> el_dofs, el_dof_disp;
+        mfem::Array<int> eldofs;
+        mfem::Array<double> eldofdisp;
         mfem::DenseMatrix CStiffness;
+        mfem::DenseMatrix dshape, gshape;
+        mfem::Vector disp_gradients;
+        mfem::DenseMatrix C, B;
+        mfem::Vector strain_temp, stress_temp;
+        mfem::Vector body_pressure;
 
     protected:
     public:
@@ -54,7 +61,7 @@ namespace mfemplus
         void ComputeElementStress(mfem::Vector &elstrain, mfem::MatrixCoefficient &Cmat, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstress);
 
         // Compute strain and stress simultaneously and each integration point.
-        void ComputeElementStrainStress(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain, mfem::Coefficient &e, mfem::Coefficient &nu, mfem::Vector &elstress);
+        void ComputeElementStrainStress(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain, mfem::Coefficient &e, mfem::Coefficient &nu, mfem::Vector &elstress, int planeApproximation = 0, mfem::Coefficient *pressure = nullptr);
 
         void ComputeElementStrainStress(mfem::GridFunction &disp, int &elnum, mfem::FiniteElementSpace *fes, mfem::FiniteElementSpace *L2_fes, mfem::Vector &elstrain, mfem::MatrixCoefficient &Cmat, mfem::Vector &elstress);
 
@@ -98,6 +105,8 @@ namespace mfemplus
         mfem::Mesh *mesh;
         mfem::FiniteElementSpace *disp_fespace, *L2_fespace;
         ElementStressStrain *ElementComp;
+        mfem::Coefficient *volumetric_pressure;
+        mfem::Vector elstrain, elstress;
 
     private:
     public:
@@ -132,7 +141,7 @@ namespace mfemplus
         void GlobalAverageMaxShear(mfem::GridFunction &disp, mfem::GridFunction &max_shear_strain);
 
         // GlobalStressStrain function to calculate strain and stress simultaneously.
-        void GlobalStrainStressElAverage(mfem::GridFunction &disp, mfem::GridFunction &strain, mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &stress);
+        void GlobalStrainStressElAverage(mfem::GridFunction &disp, mfem::GridFunction &strain, mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &stress, int planeApproximation = 0, mfem::Coefficient *pressure = nullptr);
 
         void GlobalStrainStressElAverage(mfem::GridFunction &disp, mfem::GridFunction &strain, mfem::MatrixCoefficient &Cmat, mfem::GridFunction &stress);
         // GlobalStressStrain function to calculate strain and stress simultaneously on a bounary.
