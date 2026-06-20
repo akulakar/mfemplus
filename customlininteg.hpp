@@ -177,5 +177,43 @@ namespace mfemplus
 
         using mfem::LinearFormIntegrator::AssembleRHSElementVect;
     };
+
+    //------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------
+    // Linear form integrators for nonlinear elasticity begin here.
+    //------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------
+
+    class StVenantKirchoffInternalForceLFIntegrator : public mfem::LinearFormIntegrator
+    {
+    protected:
+        mfem::Coefficient *Ey_coeff, *nu_coeff;
+        mfem::DenseMatrix C, BGradDisp, BNL; // stiffness, strain-displacement
+        mfem::Vector Elg, F;                 // Green lagrange strain
+        mfem::DenseMatrix dshape, gshape;
+        mfem::Vector Gradu, Egl, S;
+        mfem::GridFunction *disp_gf;
+        mfem::FiniteElementSpace *disp_fes;
+        mfem::Array<int> eldofs; // scalar for damage
+        mfem::Vector eldofdisp, elvec_input;
+
+    public:
+        // Need to modify the constructors...
+
+        /// Constructs a domain integrator with a given Coefficient
+
+        StVenantKirchoffInternalForceLFIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &disp_gridfunc, mfem::FiniteElementSpace *disp_fespace)
+            : Ey_coeff(&e), nu_coeff(&nu), disp_gf(&disp_gridfunc), disp_fes(disp_fespace) {};
+
+        void AssembleDevice(const mfem::FiniteElementSpace &fes, const mfem::Array<int> &markers, mfem::Vector &b) override {};
+
+        /** Given a particular Finite Element and a transformation (Tr)
+            computes the element right hand side element vector, elvect. **/
+        void AssembleRHSElementVect(const mfem::FiniteElement &el, mfem::ElementTransformation &Tr, mfem::Vector &elvect) override;
+
+        virtual void AssembleRHSElementVect(const mfem::FiniteElement &el, mfem::FaceElementTransformations &Tr, mfem::Vector &elvect) override {};
+
+        using mfem::LinearFormIntegrator::AssembleRHSElementVect;
+    };
 }
 #endif

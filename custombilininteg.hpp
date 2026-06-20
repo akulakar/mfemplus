@@ -286,5 +286,41 @@ namespace mfemplus
     // Fracture integrators end here.
     //------------------------------------------------------------------------------------------------------------
     //------------------------------------------------------------------------------------------------------------
+
+    //------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------
+    // Nonlinear elasticity integrators declared here.
+    //------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------
+
+    /**
+        Integrator for St. Venant Kirchoff tangent stiffness matrix
+       $$
+         a(\Delta u,v) =  \int_{\Omega_{e}} \bar{E}(\Delta u, v) : C : \Delta E(u, \Delta u) + C : E(u) : \Delta \bar{E} (\Delta u, v) ~\mathrm{d}\Omega_{e}
+       $$
+       This is a vector integrator, i.e. defined for vector FE spaces.
+    **/
+    class StVenantKirchoffTangentStiffnessIntegrator : public mfem::BilinearFormIntegrator
+    {
+
+    protected:
+        mfem::Coefficient *young_mod, *poisson_ratio;
+        mfem::GridFunction *disp_gf;
+        mfem::FiniteElementSpace *disp_fes;
+        mfem::Array<int> eldofs;
+        mfem::Vector eldofdisp;
+        mfem::Vector CBu, Bu, F, Egl, Gradu, S;
+        mfem::DenseMatrix C, BGradDisp, BNL, CB, Sigma, elmat_input_1, elmat_input_2; // Stiffness in Voigt form, Bmatrix (for displacement gradients);
+
+        mfem::Vector shape;
+        mfem::DenseMatrix dshape, gshape;
+
+    public:
+        StVenantKirchoffTangentStiffnessIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &disp_gridfunc, mfem::ParFiniteElementSpace *disp_fespace) : young_mod(&e), poisson_ratio(&nu), disp_gf(&disp_gridfunc), disp_fes(disp_fespace) {};
+
+        void AssembleElementMatrix(const mfem::FiniteElement &el,
+                                   mfem::ElementTransformation &Tr,
+                                   mfem::DenseMatrix &elmat) override;
+    };
 }
 #endif

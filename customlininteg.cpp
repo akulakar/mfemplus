@@ -176,32 +176,34 @@ namespace mfemplus
             }
             total_energy = strain_energy - 2 * pressure_energy;
 
-            // // Gershgorin circle theorem for stress. Alternatively, use history variable for strain energy.
-            // if (dim == 2)
-            // {
-            //     // In 2D lambda min is lambda1.
-            //     lambda1 = (CBu(0) + CBu(1)) / 2.0 - std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
-            //     lambda2 = (CBu(0) + CBu(1)) / 2.0 + std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
-            //     lambda3 = lambda1 + 1.0;
+            // Gershgorin circle theorem for stress. Alternatively, use history variable for strain energy.
+            if (dim == 2)
+            {
+                // In 2D lambda min is lambda1.
+                lambda1 = (CBu(0) - pressure_coeff + CBu(1) - pressure_coeff) / 2.0 - std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
+                lambda2 = (CBu(0) - pressure_coeff + CBu(1) - pressure_coeff) / 2.0 + std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
+                lambda3 = lambda1 + 1.0;
 
-            //     // lambda1 = CBu(0) - std::abs(CBu(3));
-            //     // lambda2 = CBu(1) - std::abs(CBu(3));
-            //     // lambda3 = lambda1 + lambda2; // artificially making it greater than both.
-            // }
-            // else if (dim == 3)
-            // {
-            //     lambda1 = CBu(0) - std::abs(CBu(5)) - std::abs(CBu(4)); // \lambda_{1} = \sigma_{11} - |\sigma_{12}| - |\sigma_{13}|
-            //     lambda2 = CBu(1) - std::abs(CBu(5)) - std::abs(CBu(3)); // \lambda_{2} = \sigma_{22} - |\sigma_{12}| - |\sigma_{23}|
-            //     lambda3 = CBu(2) - std::abs(CBu(4)) - std::abs(CBu(3)); // \lambda_{3} = \sigma_{33} - |\sigma_{13}| - |\sigma_{23}|
-            // }
+                // lambda1 = CBu(0) - std::abs(CBu(3));
+                // lambda2 = CBu(1) - std::abs(CBu(3));
+                // lambda3 = lambda1 + lambda2; // artificially making it greater than both.
+            }
+            else if (dim == 3)
+            {
+                lambda1 = CBu(0) - pressure_coeff - std::abs(CBu(5)) - std::abs(CBu(4)); // \lambda_{1} = \sigma_{11} - |\sigma_{12}| - |\sigma_{13}|
+                lambda2 = CBu(1) - pressure_coeff - std::abs(CBu(5)) - std::abs(CBu(3)); // \lambda_{2} = \sigma_{22} - |\sigma_{12}| - |\sigma_{23}|
+                lambda3 = CBu(2) - pressure_coeff - std::abs(CBu(4)) - std::abs(CBu(3)); // \lambda_{3} = \sigma_{33} - |\sigma_{13}| - |\sigma_{23}|
+            }
 
-            // if (std::min({lambda1, lambda2, lambda3}) > 0)
+            if (std::min({lambda1, lambda2, lambda3}) < 0)
+            {
+                total_energy = 0.0;
+            }
+            // else
             // {
             //     B.Mult(eldofdisp, Bu); // Bu has dimension strain_comps. This is the strain vector.
             //     strain_energy = mfem::InnerProduct(CBu, Bu);
             // }
-            // else
-            //     strain_energy = 0.0;
 
             // for now okay, but probably will change it to element average strain energy.
             add(elvect, w * total_energy, shape, elvect);
@@ -240,6 +242,10 @@ namespace mfemplus
         // Next, construct the stiffness matrix C, compute displacement gradients, and take inner product.
 
         const mfem::IntegrationRule *ir = GetIntegrationRule(el, Tr);
+        if (ir == NULL)
+        {
+            ir = &mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder());
+        }
         double w, NU, E;
 
         if (elnum == 0)
@@ -351,6 +357,10 @@ namespace mfemplus
             // Next, construct the stiffness matrix C, compute displacement gradients, and take inner product.
 
             const mfem::IntegrationRule *ir = GetIntegrationRule(el, Tr);
+            if (ir == NULL)
+            {
+                ir = &mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder());
+            }
 
             if (ir == NULL)
             {
@@ -476,7 +486,6 @@ namespace mfemplus
             // Next, construct the stiffness matrix C, compute displacement gradients, and take inner product.
 
             const mfem::IntegrationRule *ir = GetIntegrationRule(el, Tr);
-
             if (ir == NULL)
             {
                 ir = &mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder());
@@ -590,7 +599,6 @@ namespace mfemplus
             // i.e., evaluate shape functions at each quadrature point and dot product with eldofdamage to get damage at that point.
 
             const mfem::IntegrationRule *ir = GetIntegrationRule(el, Tr);
-
             if (ir == NULL)
             {
                 ir = &mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder());
@@ -663,6 +671,199 @@ namespace mfemplus
                 B.MultTranspose(body_stress, elvec_input);
                 add(elvect, w * degradation_constant, elvec_input, elvect);
             }
+        }
+    }
+
+    void StVenantKirchoffInternalForceLFIntegrator::AssembleRHSElementVect(const mfem::FiniteElement &el, mfem::ElementTransformation &Tr, mfem::Vector &elvect)
+    {
+        int dof = el.GetDof();
+        int dim = el.GetDim();
+        int str_comp = (dim == 2) ? 3 : 6;
+        int elnum = Tr.ElementNo;
+
+        dshape.SetSize(dof, dim);
+        gshape.SetSize(dof, dim);
+        eldofs.SetSize(dof * dim);    // vector valued for displacement
+        eldofdisp.SetSize(dof * dim); // vector valued displacement
+
+        disp_fes->GetElementVDofs(elnum, eldofs);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            eldofdisp(i) = (*disp_gf)(eldofs[i]);
+        }
+
+        const mfem::IntegrationRule *ir = GetIntegrationRule(el, Tr);
+
+        if (ir == NULL)
+        {
+            ir = &mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder());
+        }
+        double w, NU, E;
+
+        C.SetSize(str_comp, str_comp);           // Stiffness in Voigt form
+        BGradDisp.SetSize(dim * dim, dof * dim); // Strain displacement matrix
+        Gradu.SetSize(dim * dim);
+        Egl.SetSize(str_comp);
+        S.SetSize(str_comp);
+        F.SetSize(dim * dim);
+        BNL.SetSize(str_comp, dof * dim);
+        elvec_input.SetSize(dim * dof);
+        elvect.SetSize(dim * dof);
+
+        C = 0.0;
+        BGradDisp = 0.0;
+        Gradu = 0.0;
+        Egl = 0.0;
+        S = 0.0;
+        BNL = 0.0;
+        elvect = 0.0;
+
+        double internal_force(0.0);
+
+        for (int i = 0; i < ir->GetNPoints(); i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+
+            el.CalcDShape(ip, dshape);
+            Tr.SetIntPoint(&ip);
+            w = ip.weight * Tr.Weight(); // Quadrature weights
+
+            if (i == 0)
+            {
+                NU = Ey_coeff->Eval(Tr, ip);
+                E = nu_coeff->Eval(Tr, ip); // The elastic constants are evaluated at the first integration point.
+            } // Constant throughout element
+
+            mfem::Mult(dshape, Tr.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            // Here we want to use Voigt notation to speed up the assembly process.
+            // For this, we need the strain displacement matrix B. The element stiffness can be computed as
+            // \int_{\Omega} B^T C B. In Voigt form, the stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+            // The B matrix as 3 rows in 2D and 6 rowd in 3D.
+
+            switch (dim)
+            {
+            case 2:
+                if (i == 0)
+                {
+                    // switch (planeApprox)
+                    // {
+                    // case 0:
+                    // Plane strain
+                    C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
+                    C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
+                    C(2, 2) = E / (2 * (1 + NU));
+                    // break;
+
+                    // case 1:
+                    // Plane stress
+                    // C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                    // C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                    // C(2, 2) = E / (2 * (1 + NU));
+                    // break;
+                    // }
+                }
+
+                // In 2D, we have 3 unique strain components.
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    BGradDisp(0, spf) = gshape(spf, 0);       // u_{1,1}
+                    BGradDisp(1, spf + dof) = gshape(spf, 1); // u_{2,2}
+                    BGradDisp(2, spf) = gshape(spf, 1);       // u_{1,2}
+                    BGradDisp(3, spf + dof) = gshape(spf, 0); // u_{2,1}
+                }
+                break;
+
+            case 3:
+                if (i == 0)
+                {
+                    C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                    C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                    C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
+                }
+
+                // In 3D, we have 6 unique strain components.
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    BGradDisp(0, spf) = gshape(spf, 0);           // u_{1,1}
+                    BGradDisp(1, spf + dof) = gshape(spf, 1);     // u_{2,2}
+                    BGradDisp(2, spf + 2 * dof) = gshape(spf, 2); // u_{3,3}
+                    BGradDisp(3, spf) = gshape(spf, 1);           // u_{1,2}
+                    BGradDisp(4, spf) = gshape(spf, 2);           // u_{1,3}
+                    BGradDisp(5, spf + dof) = gshape(spf, 0);     // u_{2,1}
+                    BGradDisp(6, spf + dof) = gshape(spf, 2);     // u_{2,3}
+                    BGradDisp(7, spf + 2 * dof) = gshape(spf, 0); // u_{3,1}
+                    BGradDisp(8, spf + 2 * dof) = gshape(spf, 1); // u_{3,2}
+                }
+                break;
+            }
+            BGradDisp.Mult(eldofdisp, Gradu);
+            F = Gradu;
+            for (int i = 0; i < dim; i++)
+            {
+                F(i) += 1;
+            }
+
+            switch (dim)
+            {
+            case 3:
+                // Fill green lagrange strain vec
+                Egl(0) = Gradu(0) + 0.5 * (Gradu(0) * Gradu(0) + Gradu(5) * Gradu(5) + Gradu(7) * Gradu(7));            // E11
+                Egl(1) = Gradu(1) + 0.5 * (Gradu(1) * Gradu(1) + Gradu(3) * Gradu(3) + Gradu(8) * Gradu(8));            // E22
+                Egl(2) = Gradu(2) + 0.5 * (Gradu(2) * Gradu(2) + Gradu(4) * Gradu(4) + Gradu(6) * Gradu(6));            // E33
+                Egl(3) = 0.5 * (Gradu(6) + Gradu(8) + Gradu(3) * Gradu(4) + Gradu(1) * Gradu(6) + Gradu(8) * Gradu(2)); // E23
+                Egl(4) = 0.5 * (Gradu(4) + Gradu(7) + Gradu(0) * Gradu(4) + Gradu(5) * Gradu(6) + Gradu(7) * Gradu(2)); // E13
+                Egl(5) = 0.5 * (Gradu(3) + Gradu(5) + Gradu(0) * Gradu(3) + Gradu(5) * Gradu(1) + Gradu(7) * Gradu(8)); // E12
+
+                // Compute second piola kirchoff stress
+                C.Mult(Egl, S);
+
+                // Fill nonlinear strain displacement matrix B
+                // In 3D, we have 6 unique strain components.
+                // F: F11, F22, F33, F12, F13, F21, F23, F31, F32
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    // E11
+                    BNL(0, spf) = gshape(spf, 0) * F(0);
+                    BNL(0, spf + dof) = gshape(spf, 0) * F(5);
+                    BNL(0, spf + 2 * dof) = gshape(spf, 0) * F(7);
+
+                    // E22
+                    BNL(1, spf) = gshape(spf, 1) * F(3);
+                    BNL(1, spf + dof) = gshape(spf, 1) * F(1);
+                    BNL(1, spf + 2 * dof) = gshape(spf, 1) * F(8);
+
+                    // E33
+                    BNL(2, spf) = gshape(spf, 2) * F(4);
+                    BNL(2, spf + dof) = gshape(spf, 2) * F(6);
+                    BNL(2, spf + 2 * dof) = gshape(spf, 2) * F(2);
+
+                    // Need to check all of this
+                    // E23
+                    // BNL(3, spf) = 0.0;
+                    BNL(3, spf + dof) = (gshape(spf, 1) * F(6)) + (gshape(spf, 2) * F(1));
+                    BNL(3, spf + 2 * dof) = (gshape(spf, 1) * F(2)) + (gshape(spf, 2) * F(8));
+
+                    // E13
+                    BNL(4, spf) = (gshape(spf, 0) * F(4)) + (gshape(spf, 2) * F(0));
+                    // BNL(4, spf + dof) = 0.0;
+                    BNL(4, spf + 2 * dof) = (gshape(spf, 0) * F(2)) + (gshape(spf, 2) * F(7));
+
+                    // E12
+                    BNL(5, spf) = (gshape(spf, 0) * F(3)) + (gshape(spf, 1) * F(0));
+                    BNL(5, spf + dof) = (gshape(spf, 0) * F(1)) + (gshape(spf, 1) * F(5));
+                    // BNL(5, spf + 2 * dof) = 0.0;
+                }
+                // Assume BNL is assembled correctly. Proceed.
+            }
+
+            // Now compute the quantity S : \bar{E} Using Voigt notation, of course...
+            // This is equivalent to.
+            BNL.MultTranspose(S, elvec_input);
+
+            // for now okay, but probably will change it to element average strain energy.
+            add(elvect, -1.0 * w, elvec_input, elvect); // needs to be a negative contribution
         }
     }
 }
