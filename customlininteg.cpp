@@ -177,28 +177,28 @@ namespace mfemplus
             total_energy = strain_energy - 2 * pressure_energy;
 
             // Gershgorin circle theorem for stress. Alternatively, use history variable for strain energy.
-            if (dim == 2)
-            {
-                // In 2D lambda min is lambda1.
-                lambda1 = (CBu(0) - pressure_coeff + CBu(1) - pressure_coeff) / 2.0 - std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
-                lambda2 = (CBu(0) - pressure_coeff + CBu(1) - pressure_coeff) / 2.0 + std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
-                lambda3 = lambda1 + 1.0;
+            // if (dim == 2)
+            // {
+            //     // In 2D lambda min is lambda1.
+            //     lambda1 = (CBu(0) - pressure_coeff + CBu(1) - pressure_coeff) / 2.0 - std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
+            //     lambda2 = (CBu(0) - pressure_coeff + CBu(1) - pressure_coeff) / 2.0 + std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
+            //     lambda3 = lambda1 + 1.0;
 
-                // lambda1 = CBu(0) - std::abs(CBu(3));
-                // lambda2 = CBu(1) - std::abs(CBu(3));
-                // lambda3 = lambda1 + lambda2; // artificially making it greater than both.
-            }
-            else if (dim == 3)
-            {
-                lambda1 = CBu(0) - pressure_coeff - std::abs(CBu(5)) - std::abs(CBu(4)); // \lambda_{1} = \sigma_{11} - |\sigma_{12}| - |\sigma_{13}|
-                lambda2 = CBu(1) - pressure_coeff - std::abs(CBu(5)) - std::abs(CBu(3)); // \lambda_{2} = \sigma_{22} - |\sigma_{12}| - |\sigma_{23}|
-                lambda3 = CBu(2) - pressure_coeff - std::abs(CBu(4)) - std::abs(CBu(3)); // \lambda_{3} = \sigma_{33} - |\sigma_{13}| - |\sigma_{23}|
-            }
+            //     // lambda1 = CBu(0) - std::abs(CBu(3));
+            //     // lambda2 = CBu(1) - std::abs(CBu(3));
+            //     // lambda3 = lambda1 + lambda2; // artificially making it greater than both.
+            // }
+            // else if (dim == 3)
+            // {
+            //     lambda1 = CBu(0) - pressure_coeff - std::abs(CBu(5)) - std::abs(CBu(4)); // \lambda_{1} = \sigma_{11} - |\sigma_{12}| - |\sigma_{13}|
+            //     lambda2 = CBu(1) - pressure_coeff - std::abs(CBu(5)) - std::abs(CBu(3)); // \lambda_{2} = \sigma_{22} - |\sigma_{12}| - |\sigma_{23}|
+            //     lambda3 = CBu(2) - pressure_coeff - std::abs(CBu(4)) - std::abs(CBu(3)); // \lambda_{3} = \sigma_{33} - |\sigma_{13}| - |\sigma_{23}|
+            // }
 
-            if (std::min({lambda1, lambda2, lambda3}) < 0)
-            {
-                total_energy = 0.0;
-            }
+            // if (std::min({lambda1, lambda2, lambda3}) < 0)
+            // {
+            //     total_energy = 0.0;
+            // }
             // else
             // {
             //     B.Mult(eldofdisp, Bu); // Bu has dimension strain_comps. This is the strain vector.

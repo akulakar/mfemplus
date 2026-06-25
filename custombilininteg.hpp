@@ -310,7 +310,7 @@ namespace mfemplus
         mfem::Array<int> eldofs;
         mfem::Vector eldofdisp;
         mfem::Vector CBu, Bu, F, Egl, Gradu, S;
-        mfem::DenseMatrix C, BGradDisp, BNL, CB, Sigma, elmat_input_1, elmat_input_2; // Stiffness in Voigt form, Bmatrix (for displacement gradients);
+        mfem::DenseMatrix C, BGradDisp, BNL, CB, Sigma, elmat_input_1, elmat_input_2, elmat_input_2_temp; // Stiffness in Voigt form, Bmatrix (for displacement gradients);
 
         mfem::Vector shape;
         mfem::DenseMatrix dshape, gshape;
