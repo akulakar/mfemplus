@@ -184,6 +184,8 @@ namespace mfemplus
     //------------------------------------------------------------------------------------------------------------
     //------------------------------------------------------------------------------------------------------------
 
+    // Integrates the external tractions, body forces and internal nodal forces all in one loop.
+
     class StVenantKirchoffInternalForceLFIntegrator : public mfem::LinearFormIntegrator
     {
     protected:
@@ -192,18 +194,19 @@ namespace mfemplus
         mfem::Vector Elg, F;                 // Green lagrange strain
         mfem::DenseMatrix dshape, gshape;
         mfem::Vector Gradu, Egl, S;
-        mfem::GridFunction *disp_gf;
-        mfem::FiniteElementSpace *disp_fes;
-        mfem::Array<int> eldofs; // scalar for damage
-        mfem::Vector eldofdisp, elvec_input;
+        mfem::GridFunction *disp_gf, *strain_gf, *stress_gf; // Green-Lagrange strain and 2nd Piola-Kirchoff stress.
+        mfem::FiniteElementSpace *disp_fes, *L2_fes;         // H1 fes for displacement and L2 fes for strain and stress.
+        mfem::Array<int> eldofs;                             // scalar for damage
+        mfem::Vector eldofdisp, elvec_input, elstrain_ave, elstress_ave;
 
     public:
         // Need to modify the constructors...
 
         /// Constructs a domain integrator with a given Coefficient
 
-        StVenantKirchoffInternalForceLFIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &disp_gridfunc, mfem::FiniteElementSpace *disp_fespace)
-            : Ey_coeff(&e), nu_coeff(&nu), disp_gf(&disp_gridfunc), disp_fes(disp_fespace) {};
+        StVenantKirchoffInternalForceLFIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &disp_gridfunc, mfem::GridFunction &strain_gridfunc, mfem::GridFunction &stress_gridfunc, mfem::FiniteElementSpace *disp_fespace)
+            : Ey_coeff(&e), nu_coeff(&nu), disp_gf(&disp_gridfunc), strain_gf(&strain_gridfunc), stress_gf(&stress_gridfunc), disp_fes(disp_fespace) {};
+        // Fill in the average strain and stress for each element into the strain and stress gf;
 
         void AssembleDevice(const mfem::FiniteElementSpace &fes, const mfem::Array<int> &markers, mfem::Vector &b) override {};
 

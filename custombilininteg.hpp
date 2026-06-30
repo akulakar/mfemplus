@@ -310,7 +310,7 @@ namespace mfemplus
         mfem::Array<int> eldofs;
         mfem::Vector eldofdisp;
         mfem::Vector CBu, Bu, F, Egl, Gradu, S;
-        mfem::DenseMatrix C, BGradDisp, BNL, CB, Sigma, elmat_input_1, elmat_input_2, elmat_input_2_temp; // Stiffness in Voigt form, Bmatrix (for displacement gradients);
+        mfem::DenseMatrix C, BGradDisp, BNL, Sigma, elmat_input_1, elmat_input_2, elmat_input_1_temp, elmat_input_2_temp; // Stiffness in Voigt form, Bmatrix (for displacement gradients);
 
         mfem::Vector shape;
         mfem::DenseMatrix dshape, gshape;
@@ -322,5 +322,32 @@ namespace mfemplus
                                    mfem::ElementTransformation &Tr,
                                    mfem::DenseMatrix &elmat) override;
     };
+
+    // Corotational integration with isotropic linear elastic constitutive law
+    class IsotropicCorotationalTangentStiffnessIntegrator : public mfem::BilinearFormIntegrator
+    {
+
+    protected:
+        mfem::Coefficient *young_mod, *poisson_ratio;
+        mfem::GridFunction *disp_gf;
+        mfem::FiniteElementSpace *disp_fes;
+        mfem::Array<int> eldofs;
+        mfem::Vector eldofdisp;
+        mfem::Vector CBu, Bu, F, Egl, Gradu, S;
+        mfem::DenseMatrix Fmat, Rmat, Umat;                // Def gradient F and it's polar decomposition R U
+        mfem::DenseMatrix C, B, CB, BGradDisp, BNL, Sigma; // Stiffness in Voigt form, Bmatrix (for displacement gradients);
+        mfem::DenseMatrix elmat_input_1, elmat_input_2, elmat_input_1_temp, elmat_input_2_temp, elmat_input;
+
+        mfem::Vector shape;
+        mfem::DenseMatrix dshape, gshape;
+
+    public:
+        IsotropicCorotationalTangentStiffnessIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &disp_gridfunc, mfem::ParFiniteElementSpace *disp_fespace) : young_mod(&e), poisson_ratio(&nu), disp_gf(&disp_gridfunc), disp_fes(disp_fespace) {};
+
+        void AssembleElementMatrix(const mfem::FiniteElement &el,
+                                   mfem::ElementTransformation &Tr,
+                                   mfem::DenseMatrix &elmat) override;
+    };
+
 }
 #endif

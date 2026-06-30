@@ -9,12 +9,11 @@
 //------------------------------------------------------------------------------------------------------------
 //------------------------------------------------------------------------------------------------------------
 
-#include "computequantities.hpp"
-#include "omp.h"
+#include <computequantities.hpp>
 #include <cmath>
 #include <algorithm>
 #include <memory>
-#include "Dense"
+#include <Dense>
 
 using namespace std;
 namespace mfemplus

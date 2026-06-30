@@ -12,6 +12,8 @@
 #include <cmath>
 #include <algorithm>
 #include <memory>
+#include <Dense>
+#include <SVD>
 
 using namespace std;
 namespace mfemplus
@@ -831,11 +833,11 @@ namespace mfemplus
         C.SetSize(str_comp, str_comp);                    // Stiffness in Voigt form
         BGradDisp.SetSize(dim * dim, dof * dim);          // Displacement gradient displacement matrix
         BNL.SetSize(str_comp, dof * dim);                 // Nonlinear Displacement Strain matrix
-        CB.SetSize(str_comp, dof * dim);                  //
         Sigma.SetSize(dim * dim, dim * dim);              // Matrix form of Second Piola Kirchoff
         elmat_input_1.SetSize(dof * dim, dof * dim);      // element matrix 1
         elmat_input_2.SetSize(dof * dim, dof * dim);      // element matrix 2
-        elmat_input_2_temp.SetSize(dof * dim, dof * dim); // element matrix 2 temp
+        elmat_input_1_temp.SetSize(dof * dim, dim * dim); // element matrix 1 temp
+        elmat_input_2_temp.SetSize(str_comp, dof * dim);  // element matrix 2 temp
         Gradu.SetSize(dim * dim);                         // Displacement gradient
         F.SetSize(dim * dim);                             // Deformation gradient
         Egl.SetSize(str_comp);                            // Green lagrange strain
@@ -850,7 +852,6 @@ namespace mfemplus
         Gradu = 0.0;
         Egl = 0.0;
         S = 0.0;
-        CB = 0.0;
         elmat_input_1 = 0.0;
         elmat_input_2_temp = 0.0;
         elmat_input_2 = 0.0;
@@ -910,13 +911,13 @@ namespace mfemplus
                 break;
 
             case 3:
-                // if (i == 0)
-                // {
-                C = 0.0;
-                C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
-                C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
-                C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
-                // }
+                if (i == 0)
+                {
+                    C = 0.0;
+                    C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                    C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                    C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
+                }
 
                 // In 3D, we have 6 unique strain components.
                 for (int spf = 0; spf < dof; spf++)
@@ -931,26 +932,26 @@ namespace mfemplus
                     BGradDisp(7, spf + 2 * dof) = gshape(spf, 0); // u_{3,1}
                     BGradDisp(8, spf + 2 * dof) = gshape(spf, 1); // u_{3,2}
                 }
+
                 break;
             }
             BGradDisp.Mult(eldofdisp, Gradu);
             F = Gradu;
-            F = 0.0;
             for (int i = 0; i < dim; i++)
             {
                 F(i) += 1.0;
             }
 
-            if (dim == 3)
+            switch (dim)
             {
-                // case 3:
+            case 3:
                 // Fill green lagrange strain vec
-                Egl(0) = Gradu(0) + 0.5 * (Gradu(0) * Gradu(0) + Gradu(5) * Gradu(5) + Gradu(7) * Gradu(7));            // E11
-                Egl(1) = Gradu(1) + 0.5 * (Gradu(1) * Gradu(1) + Gradu(3) * Gradu(3) + Gradu(8) * Gradu(8));            // E22
-                Egl(2) = Gradu(2) + 0.5 * (Gradu(2) * Gradu(2) + Gradu(4) * Gradu(4) + Gradu(6) * Gradu(6));            // E33
-                Egl(3) = 0.5 * (Gradu(6) + Gradu(8) + Gradu(3) * Gradu(4) + Gradu(1) * Gradu(6) + Gradu(8) * Gradu(2)); // E23
-                Egl(4) = 0.5 * (Gradu(4) + Gradu(7) + Gradu(0) * Gradu(4) + Gradu(5) * Gradu(6) + Gradu(7) * Gradu(2)); // E13
-                Egl(5) = 0.5 * (Gradu(3) + Gradu(5) + Gradu(0) * Gradu(3) + Gradu(5) * Gradu(1) + Gradu(7) * Gradu(8)); // E12
+                Egl(0) = Gradu(0) + 0.5 * (Gradu(0) * Gradu(0) + Gradu(5) * Gradu(5) + Gradu(7) * Gradu(7));      // E11
+                Egl(1) = Gradu(1) + 0.5 * (Gradu(1) * Gradu(1) + Gradu(3) * Gradu(3) + Gradu(8) * Gradu(8));      // E22
+                Egl(2) = Gradu(2) + 0.5 * (Gradu(2) * Gradu(2) + Gradu(4) * Gradu(4) + Gradu(6) * Gradu(6));      // E33
+                Egl(3) = (Gradu(6) + Gradu(8) + Gradu(3) * Gradu(4) + Gradu(1) * Gradu(6) + Gradu(8) * Gradu(2)); // 2 E23
+                Egl(4) = (Gradu(4) + Gradu(7) + Gradu(0) * Gradu(4) + Gradu(5) * Gradu(6) + Gradu(7) * Gradu(2)); // 2 E13
+                Egl(5) = (Gradu(3) + Gradu(5) + Gradu(0) * Gradu(3) + Gradu(5) * Gradu(1) + Gradu(7) * Gradu(8)); // 2 E12
 
                 // Compute second piola kirchoff stress
                 C.Mult(Egl, S);
@@ -988,85 +989,332 @@ namespace mfemplus
                 // Fill nonlinear strain displacement matrix B
                 // In 3D, we have 6 unique strain components.
                 // F: F11, F22, F33, F12, F13, F21, F23, F31, F32
-                BNL = 0.0;
-                // for (int spf = 0; spf < dof; spf++)
-                // {
-                //     // E11
-                //     BNL(0, spf) = gshape(spf, 0) * F(0);
-                //     BNL(0, spf + dof) = gshape(spf, 0) * F(5);
-                //     BNL(0, spf + 2 * dof) = gshape(spf, 0) * F(7);
-
-                //     // E22
-                //     BNL(1, spf) = gshape(spf, 1) * F(3);
-                //     BNL(1, spf + dof) = gshape(spf, 1) * F(1);
-                //     BNL(1, spf + 2 * dof) = gshape(spf, 1) * F(8);
-
-                //     // E33
-                //     BNL(2, spf) = gshape(spf, 2) * F(4);
-                //     BNL(2, spf + dof) = gshape(spf, 2) * F(6);
-                //     BNL(2, spf + 2 * dof) = gshape(spf, 2) * F(2);
-
-                //     // Need to check all of this
-                //     // E23
-                //     BNL(3, spf) = 0.0;
-                //     BNL(3, spf + dof) = (gshape(spf, 1) * F(6)) + (gshape(spf, 2) * F(1));
-                //     BNL(3, spf + 2 * dof) = (gshape(spf, 1) * F(2)) + (gshape(spf, 2) * F(8));
-
-                //     // E13
-                //     BNL(4, spf) = (gshape(spf, 0) * F(4)) + (gshape(spf, 2) * F(0));
-                //     BNL(4, spf + dof) = 0.0;
-                //     BNL(4, spf + 2 * dof) = (gshape(spf, 0) * F(2)) + (gshape(spf, 2) * F(7));
-
-                //     // E12
-                //     BNL(5, spf) = (gshape(spf, 0) * F(3)) + (gshape(spf, 1) * F(0));
-                //     BNL(5, spf + dof) = (gshape(spf, 0) * F(1)) + (gshape(spf, 1) * F(5));
-                //     BNL(5, spf + 2 * dof) = 0.0;
-                // }
-
-                BNL = 0.0;
                 for (int spf = 0; spf < dof; spf++)
                 {
-                    BNL(0, spf) = gshape(spf, 0);
-                    BNL(1, spf + dof) = gshape(spf, 1);
-                    BNL(2, spf + 2 * dof) = gshape(spf, 2);
-                    BNL(3, spf + dof) = gshape(spf, 2);
-                    BNL(3, spf + 2 * dof) = gshape(spf, 1);
-                    BNL(4, spf) = gshape(spf, 2);
-                    BNL(4, spf + 2 * dof) = gshape(spf, 0);
-                    BNL(5, spf) = gshape(spf, 1);
-                    BNL(5, spf + dof) = gshape(spf, 0);
+                    // E11
+                    BNL(0, spf) = gshape(spf, 0) * F(0);
+                    BNL(0, spf + dof) = gshape(spf, 0) * F(5);
+                    BNL(0, spf + 2 * dof) = gshape(spf, 0) * F(7);
+
+                    // E22
+                    BNL(1, spf) = gshape(spf, 1) * F(3);
+                    BNL(1, spf + dof) = gshape(spf, 1) * F(1);
+                    BNL(1, spf + 2 * dof) = gshape(spf, 1) * F(8);
+
+                    // E33
+                    BNL(2, spf) = gshape(spf, 2) * F(4);
+                    BNL(2, spf + dof) = gshape(spf, 2) * F(6);
+                    BNL(2, spf + 2 * dof) = gshape(spf, 2) * F(2);
+
+                    // Need to check all of this
+                    // E23
+                    // BNL(3, spf) = 0.0;
+                    BNL(3, spf + dof) = (gshape(spf, 1) * F(6)) + (gshape(spf, 2) * F(1));
+                    BNL(3, spf + 2 * dof) = (gshape(spf, 1) * F(2)) + (gshape(spf, 2) * F(8));
+
+                    // E13
+                    BNL(4, spf) = (gshape(spf, 0) * F(4)) + (gshape(spf, 2) * F(0));
+                    // BNL(4, spf + dof) = 0.0;
+                    BNL(4, spf + 2 * dof) = (gshape(spf, 0) * F(2)) + (gshape(spf, 2) * F(7));
+
+                    // E12
+                    BNL(5, spf) = (gshape(spf, 0) * F(3)) + (gshape(spf, 1) * F(0));
+                    BNL(5, spf + dof) = (gshape(spf, 0) * F(1)) + (gshape(spf, 1) * F(5));
+                    // BNL(5, spf + 2 * dof) = 0.0;
                 }
+
                 // Assume BNL is assembled correctly. Proceed.
-                // break;
+                break;
             }
 
             // elmat input 1
-            mfem::MultAtB(BGradDisp, Sigma, elmat_input_1);
-            mfem::Mult(elmat_input_1, BGradDisp, elmat_input_1);
+            mfem::MultAtB(BGradDisp, Sigma, elmat_input_1_temp);
+            mfem::Mult(elmat_input_1_temp, BGradDisp, elmat_input_1);
 
+            // cout << "elmat 1 norm: " << w * elmat_input_1.FNorm() << endl;
             // elmat input 2
-
-            // mfem::MultAtB(BNL, C, elmat_input_2);
-
-            C(0, 0) = C(1, 1) = C(2, 2) = C(3, 3) = C(4, 4) = C(5, 5) = 1.0;
-            cout << "BNL norm: " << BNL.FNorm() << endl;
-            mfem::Mult(C, BNL, elmat_input_2_temp);
-            cout << "elmat 2 temp norm: " << elmat_input_2_temp.FNorm() << endl;
-            // mfem::Mult(elmat_input_2, BNL, elmat_input_2);
-            // mfem::MultAtB(BNL, elmat_input_2_temp, elmat_input_2);
-            mfem::MultAtB(BNL, BNL, elmat_input_2);
-
-            cout << "elmat 2 norm: " << elmat_input_2.FNorm() << endl;
-
-            // elmat = 0.0; // Need to delete.
-            // elmat.Add(w, elmat_input_1);
-            elmat.Add(w, elmat_input_2);
-
             // cout << "BNL norm: " << BNL.FNorm() << endl;
-            // cout << "Elmat 1 norm:" << elmat_input_1.FNorm() << endl;
-            // cout << "Elmat 2 temp norm:" << elmat_input_2_temp.MaxMaxNorm() << endl;
-            // cout << "Elmat 2 norm :" << elmat_input_2.MaxMaxNorm() << endl;
-            // cout << "Elmat norm:" << elmat.FNorm() << endl;
+            mfem::Mult(C, BNL, elmat_input_2_temp);
+
+            // cout << "elmat 2 temp norm: " << elmat_input_2_temp.FNorm() << endl;
+            mfem::MultAtB(BNL, elmat_input_2_temp, elmat_input_2);
+
+            // cout << "elmat 2 norm: " << w * elmat_input_2.FNorm() << endl;
+
+            elmat.Add(w, elmat_input_1);
+            elmat.Add(w, elmat_input_2);
+        }
+    }
+
+    // Corotational integrator
+
+    void IsotropicCorotationalTangentStiffnessIntegrator::AssembleElementMatrix(const mfem::FiniteElement &el, mfem::ElementTransformation &Tr, mfem::DenseMatrix &elmat)
+    {
+        int dof = el.GetDof();
+        int dim = el.GetDim();
+        int str_comp = (dim == 2) ? 3 : 6;
+        int elnum = Tr.ElementNo;
+        mfem::real_t w, E, NU;
+
+        MFEM_ASSERT(dim == Trans.GetSpaceDim(), "");
+
+        dshape.SetSize(dof, dim);
+        gshape.SetSize(dof, dim);
+        eldofs.SetSize(dof * dim);    // vector valued for displacement
+        eldofdisp.SetSize(dof * dim); // vector valued displacement
+
+        disp_fes->GetElementVDofs(elnum, eldofs);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            eldofdisp(i) = (*disp_gf)(eldofs[i]);
+        }
+
+        elmat.SetSize(dof * dim, dof * dim);
+
+        const mfem::IntegrationRule *ir = GetIntegrationRule(el, Tr);
+        if (ir == NULL)
+        {
+            int order = 2 * Tr.OrderGrad(&el); // correct order?
+            ir = &mfem::IntRules.Get(el.GetGeomType(), order);
+        }
+
+        C.SetSize(str_comp, str_comp);                    // Stiffness in Voigt form
+        BGradDisp.SetSize(dim * dim, dof * dim);          // Displacement gradient displacement matrix
+        BNL.SetSize(str_comp, dof * dim);                 // Nonlinear Displacement Strain matrix
+        Sigma.SetSize(dim * dim, dim * dim);              // Matrix form of Second Piola Kirchoff
+        elmat_input_1.SetSize(dof * dim, dof * dim);      // element matrix 1
+        elmat_input_2.SetSize(dof * dim, dof * dim);      // element matrix 2
+        elmat_input_1_temp.SetSize(dof * dim, dim * dim); // element matrix 1 temp
+        elmat_input_2_temp.SetSize(str_comp, dof * dim);  // element matrix 2 temp
+        Gradu.SetSize(dim * dim);                         // Displacement gradient
+        F.SetSize(dim * dim);                             // Deformation gradient
+        Egl.SetSize(str_comp);                            // Green lagrange strain
+        S.SetSize(str_comp);                              // Second Piola Kirchoff
+        Fmat.SetSize(dim, dim);                           // Def gradient
+        Rmat.SetSize(dim, dim);                           // Polar decomposition R
+        Umat.SetSize(dim, dim);                           // Right stretch tensor
+        B.SetSize(str_comp, dof * dim);
+        CB.SetSize(str_comp, dof * dim);
+        elmat_input.SetSize(dof * dim, dof * dim);
+
+        elmat = 0.0;
+        C = 0.0;
+        BGradDisp = 0.0;
+        BNL = 0.0;
+        Sigma = 0.0;
+        F = 0.0;
+        Gradu = 0.0;
+        Egl = 0.0;
+        S = 0.0;
+        elmat_input_1 = 0.0;
+        elmat_input_2_temp = 0.0;
+        elmat_input_2 = 0.0;
+        Fmat = 0.0;
+        B = 0.0;
+
+        for (int i = 0; i < ir->GetNPoints(); i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+
+            el.CalcDShape(ip, dshape);
+
+            Tr.SetIntPoint(&ip);
+            w = ip.weight * Tr.Weight();                      // Quadrature weights
+            mfem::Mult(dshape, Tr.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            if (i == 0)
+            {
+                NU = poisson_ratio->Eval(Tr, ip);
+                E = young_mod->Eval(Tr, ip); // The elastic constants are evaluated at each integration point.
+            }
+
+            // Here we want to use Voigt notation to speed up the assembly process.
+            // For this, we need the strain displacement matrix B. The element stiffness can be computed as
+            // \int_{\Omega} B^T C B. In Voigt form, the stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+            // The B matrix as 3 rows in 2D and 6 rowd in 3D.
+            dim = 3;
+            switch (dim)
+            {
+            case 2:
+                if (i == 0)
+                {
+                    // switch (planeApprox)
+                    // {
+                    // case 0:
+                    // Plane strain
+                    C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
+                    C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
+                    C(2, 2) = E / (2 * (1 + NU));
+                    // break;
+
+                    // case 1:
+                    // Plane stress
+                    // C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                    // C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                    // C(2, 2) = E / (2 * (1 + NU));
+                    // break;
+                    // }
+                }
+
+                // In 2D, we have 3 unique strain components.
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    BGradDisp(0, spf) = gshape(spf, 0);       // u_{1,1}
+                    BGradDisp(1, spf + dof) = gshape(spf, 1); // u_{2,2}
+                    BGradDisp(2, spf) = gshape(spf, 1);       // u_{1,2}
+                    BGradDisp(3, spf + dof) = gshape(spf, 0); // u_{2,1}
+                }
+                break;
+
+            case 3:
+                if (i == 0)
+                {
+                    C = 0.0;
+                    C(0, 0) = C(1, 1) = C(2, 2) = (E * (1 - NU)) / ((1 - 2 * NU) * (1 + NU));
+                    C(0, 1) = C(0, 2) = C(1, 0) = C(1, 2) = C(2, 0) = C(2, 1) = (E * NU) / ((1 - 2 * NU) * (1 + NU));
+                    C(3, 3) = C(4, 4) = C(5, 5) = E / (2 * (1 + NU));
+                }
+
+                // In 3D, we have 6 unique strain components.
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    BGradDisp(0, spf) = gshape(spf, 0);           // u_{1,1}
+                    BGradDisp(1, spf + dof) = gshape(spf, 1);     // u_{2,2}
+                    BGradDisp(2, spf + 2 * dof) = gshape(spf, 2); // u_{3,3}
+                    BGradDisp(3, spf) = gshape(spf, 1);           // u_{1,2}
+                    BGradDisp(4, spf) = gshape(spf, 2);           // u_{1,3}
+                    BGradDisp(5, spf + dof) = gshape(spf, 0);     // u_{2,1}
+                    BGradDisp(6, spf + dof) = gshape(spf, 2);     // u_{2,3}
+                    BGradDisp(7, spf + 2 * dof) = gshape(spf, 0); // u_{3,1}
+                    BGradDisp(8, spf + 2 * dof) = gshape(spf, 1); // u_{3,2}
+
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf + 2 * dof) = gshape(spf, 2);
+                    B(3, spf + dof) = gshape(spf, 2);
+                    B(3, spf + 2 * dof) = gshape(spf, 1);
+                    B(4, spf) = gshape(spf, 2);
+                    B(4, spf + 2 * dof) = gshape(spf, 0);
+                    B(5, spf) = gshape(spf, 1);
+                    B(5, spf + dof) = gshape(spf, 0);
+                }
+
+                break;
+            }
+            BGradDisp.Mult(eldofdisp, Gradu);
+            F = Gradu;
+            for (int i = 0; i < dim; i++)
+            {
+                F(i) += 1.0;
+            }
+
+            // Set up Fmat
+            Fmat(0, 0) = F(0);
+            Fmat(1, 1) = F(1);
+            Fmat(2, 2) = F(2);
+            Fmat(0, 1) = F(3);
+            Fmat(0, 2) = F(4);
+            Fmat(1, 0) = F(5);
+            Fmat(1, 2) = F(6);
+            Fmat(2, 0) = F(7);
+            Fmat(2, 1) = F(8);
+
+            Eigen::Matrix<double, 3, 3> Fmat2;
+            Fmat2 << F(0), F(3), F(4),
+                F(1), F(5), F(6),
+                F(2), F(7), F(8);
+
+            Eigen::JacobiSVD<Eigen::Matrix<double, 3, 3>, Eigen::ComputeFullU | Eigen::ComputeFullV> SVDSolver(dim, dim);
+
+            SVDSolver.compute(Fmat2);
+            Eigen::Matrix<double, 3, 3> W = SVDSolver.matrixU();
+            Eigen::Matrix<double, 3, 3> V = SVDSolver.matrixV();
+            Eigen::Vector<double, 3> SVals = SVDSolver.singularValues();
+            Eigen::Matrix<double, 3, 3> SValsMat;
+            SValsMat << SVals(0), 0.0f, 0.0f,
+                0.0f, SVals(1), 0.0f,
+                0.0f, 0.0f, SVals(2);
+
+            Eigen::Matrix<double, 3, 3> Rmat2, Umat2;
+
+            Rmat2 = W * V.transpose();
+            Umat2 = V * SValsMat * V.transpose();
+
+            // Polar decomposition completed. Check.
+            Eigen::Matrix<double, 3, 3> Fmat3;
+            Fmat3 = Rmat2 * Umat2;
+            Fmat3 -= Fmat2;
+            cout << "Fmat3 norm: " << Fmat3.norm() << endl; // Should be 0, or close to it.
+
+            Rmat(0, 0) = Rmat2(0, 0);
+            Rmat(0, 1) = Rmat2(0, 1);
+            Rmat(0, 2) = Rmat2(0, 2);
+            Rmat(1, 0) = Rmat2(1, 0);
+            Rmat(1, 1) = Rmat2(1, 1);
+            Rmat(1, 2) = Rmat2(1, 2);
+            Rmat(2, 0) = Rmat2(2, 0);
+            Rmat(2, 1) = Rmat2(2, 1);
+            Rmat(2, 2) = Rmat2(2, 2);
+
+            Umat(0, 0) = Umat2(0, 0);
+            Umat(0, 1) = Umat2(0, 1);
+            Umat(0, 2) = Umat2(0, 2);
+            Umat(1, 0) = Umat2(1, 0);
+            Umat(1, 1) = Umat2(1, 1);
+            Umat(1, 2) = Umat2(1, 2);
+            Umat(2, 0) = Umat2(2, 0);
+            Umat(2, 1) = Umat2(2, 1);
+            Umat(2, 2) = Umat2(2, 2);
+
+            // Okay, polar decomposition is done, now what....
+            // Rotate local basis by R^T. i.e., Represent displacements in new basis.
+            // For each node, [u1' u2' u3']^T = [Rmat] [u1 u2 u3]^T
+            // eldofdisp is ordered byNODES, meaning, [u1^1, u1^2, u1^3,..., u2^1, u2^2, u2^3,..., u3^1, u3^2, u3^3,...]
+            // Need to transform by dof.
+
+            mfem::Vector eldofdispTrans(dof * dim);
+            mfem::Vector dofDispComps(dim), dofDispCompsTrans(dim);
+
+            for (int ii = 0; ii < dof; ii++)
+            {
+                dofDispComps(0) = eldofdisp(ii);
+                dofDispComps(1) = eldofdisp(dof - 1 + ii);
+                dofDispComps(2) = eldofdisp(2 * dof - 1 + ii);
+
+                Rmat.Mult(dofDispComps, dofDispCompsTrans);
+
+                eldofdispTrans(ii) = dofDispCompsTrans(0);
+                eldofdispTrans(dof - 1 + ii) = dofDispCompsTrans(1);
+                eldofdispTrans(2 * dof - 1 + ii) = dofDispCompsTrans(2);
+            }
+
+            // Alright, displacements are now transformed into element specific basis. Now what?
+            // ChatGPT advice:
+            // Calculate element stiffness matrix just as you would in linear elastic FEM, then rotate the stiffness matrix back to original basis using transpose of Rmat...
+
+            mfem::Mult(C, B, CB);              // CB is 6 x (dof * dim)
+            mfem::MultAtB(B, CB, elmat_input); // elmat_add is (dof*dim) x (dof*dim)
+
+            // Great, now have to rotate the components of this guy back to the original basis...
+            // Probably, one way is to extract out 3 x 3 matrices for each dof, transform, and replace.
+
+            mfem::DenseMatrix elmat_input_trans(dof * dim, dof * dim);
+            mfem::DenseMatrix elmat_dof(dim * dim), elmat_dof_trans(dim * dim);
+
+            for (int ii = 0; ii < dof; ii++)
+            {
+                elmat_dof(0, 0) = elmat_input(ii, ii);
+                // Need 8 more like this.
+
+                mfem::MultAtB(Rmat, elmat_dof, elmat_dof_trans);
+                mfem::Mult(elmat_dof_trans, Rmat, elmat_dof_trans);
+
+                elmat_input_trans(ii, ii) = elmat_dof_trans(0, 0);
+                // Need 8 more like this
+            }
+
+            elmat.Add(w, elmat_input);
         }
     }
 }

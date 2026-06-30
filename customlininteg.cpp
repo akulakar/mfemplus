@@ -680,6 +680,7 @@ namespace mfemplus
         int dim = el.GetDim();
         int str_comp = (dim == 2) ? 3 : 6;
         int elnum = Tr.ElementNo;
+        int numels = disp_fes->GetNE();
 
         dshape.SetSize(dof, dim);
         gshape.SetSize(dof, dim);
@@ -694,11 +695,11 @@ namespace mfemplus
         }
 
         const mfem::IntegrationRule *ir = GetIntegrationRule(el, Tr);
-
         if (ir == NULL)
         {
             ir = &mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder());
         }
+
         double w, NU, E;
 
         C.SetSize(str_comp, str_comp);           // Stiffness in Voigt form
@@ -708,20 +709,21 @@ namespace mfemplus
         S.SetSize(str_comp);
         F.SetSize(dim * dim);
         BNL.SetSize(str_comp, dof * dim);
-        elvec_input.SetSize(dim * dof);
-        elvect.SetSize(dim * dof);
+        elvec_input.SetSize(dof * dim);
+        elvect.SetSize(dof * dim);
+        elstrain_ave.SetSize(str_comp);
+        elstress_ave.SetSize(str_comp);
 
         C = 0.0;
         BGradDisp = 0.0;
-        Gradu = 0.0;
-        Egl = 0.0;
-        S = 0.0;
         BNL = 0.0;
         elvect = 0.0;
+        elstrain_ave = 0.0;
+        elstress_ave = 0.0;
 
-        double internal_force(0.0);
+        int num_int_points = ir->GetNPoints();
 
-        for (int i = 0; i < ir->GetNPoints(); i++)
+        for (int i = 0; i < num_int_points; i++)
         {
             const mfem::IntegrationPoint &ip = ir->IntPoint(i);
 
@@ -731,8 +733,8 @@ namespace mfemplus
 
             if (i == 0)
             {
-                NU = Ey_coeff->Eval(Tr, ip);
-                E = nu_coeff->Eval(Tr, ip); // The elastic constants are evaluated at the first integration point.
+                E = Ey_coeff->Eval(Tr, ip);
+                NU = nu_coeff->Eval(Tr, ip); // The elastic constants are evaluated at the first integration point.
             } // Constant throughout element
 
             mfem::Mult(dshape, Tr.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
@@ -802,7 +804,7 @@ namespace mfemplus
             F = Gradu;
             for (int i = 0; i < dim; i++)
             {
-                F(i) += 1;
+                F(i) += 1.0;
             }
 
             switch (dim)
@@ -812,12 +814,18 @@ namespace mfemplus
                 Egl(0) = Gradu(0) + 0.5 * (Gradu(0) * Gradu(0) + Gradu(5) * Gradu(5) + Gradu(7) * Gradu(7));            // E11
                 Egl(1) = Gradu(1) + 0.5 * (Gradu(1) * Gradu(1) + Gradu(3) * Gradu(3) + Gradu(8) * Gradu(8));            // E22
                 Egl(2) = Gradu(2) + 0.5 * (Gradu(2) * Gradu(2) + Gradu(4) * Gradu(4) + Gradu(6) * Gradu(6));            // E33
-                Egl(3) = 0.5 * (Gradu(6) + Gradu(8) + Gradu(3) * Gradu(4) + Gradu(1) * Gradu(6) + Gradu(8) * Gradu(2)); // E23
-                Egl(4) = 0.5 * (Gradu(4) + Gradu(7) + Gradu(0) * Gradu(4) + Gradu(5) * Gradu(6) + Gradu(7) * Gradu(2)); // E13
-                Egl(5) = 0.5 * (Gradu(3) + Gradu(5) + Gradu(0) * Gradu(3) + Gradu(5) * Gradu(1) + Gradu(7) * Gradu(8)); // E12
+                Egl(3) = (Gradu(6) + Gradu(8) + (Gradu(3) * Gradu(4)) + (Gradu(1) * Gradu(6)) + (Gradu(8) * Gradu(2))); // 2 E23
+                Egl(4) = (Gradu(4) + Gradu(7) + (Gradu(0) * Gradu(4)) + (Gradu(5) * Gradu(6)) + (Gradu(7) * Gradu(2))); // 2 E13
+                Egl(5) = (Gradu(3) + Gradu(5) + (Gradu(0) * Gradu(3)) + (Gradu(5) * Gradu(1)) + (Gradu(7) * Gradu(8))); // 2 E12
+
+                // Strain computed, add to strain_ave.
+                elstrain_ave.Add(1.0 / num_int_points, Egl);
 
                 // Compute second piola kirchoff stress
                 C.Mult(Egl, S);
+
+                // Stress computed, add to stress_ave.
+                elstress_ave.Add(1.0 / num_int_points, S);
 
                 // Fill nonlinear strain displacement matrix B
                 // In 3D, we have 6 unique strain components.
@@ -856,14 +864,21 @@ namespace mfemplus
                     // BNL(5, spf + 2 * dof) = 0.0;
                 }
                 // Assume BNL is assembled correctly. Proceed.
+                break;
             }
 
             // Now compute the quantity S : \bar{E} Using Voigt notation, of course...
             // This is equivalent to.
             BNL.MultTranspose(S, elvec_input);
 
-            // for now okay, but probably will change it to element average strain energy.
             add(elvect, -1.0 * w, elvec_input, elvect); // needs to be a negative contribution
+
+            // Add strain_ave and stress_ave to strain_gf and stress_gf in appropriate locations. Element number is known.
+            for (int comp = 0; comp < str_comp; comp++)
+            {
+                (*strain_gf)(elnum + (numels * comp)) = elstrain_ave(comp);
+                (*stress_gf)(elnum + (numels * comp)) = elstress_ave(comp);
+            }
         }
     }
 }
