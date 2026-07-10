@@ -881,4 +881,293 @@ namespace mfemplus
             }
         }
     }
+
+    void CompressibleNeoHookeanInternalForceLFIntegrator::AssembleRHSElementVect(const mfem::FiniteElement &el, mfem::ElementTransformation &Tr, mfem::Vector &elvect)
+    {
+        int dof = el.GetDof();
+        int dim = el.GetDim();
+        int str_comp = (dim == 2) ? 3 : 6;
+        int elnum = Tr.ElementNo;
+        int numels = disp_fes->GetNE();
+
+        dshape.SetSize(dof, dim);
+        gshape.SetSize(dof, dim);
+        eldofs.SetSize(dof * dim);    // vector valued for displacement
+        eldofdisp.SetSize(dof * dim); // vector valued displacement
+
+        disp_fes->GetElementVDofs(elnum, eldofs);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            eldofdisp(i) = (*disp_gf)(eldofs[i]);
+        }
+
+        const mfem::IntegrationRule *ir = GetIntegrationRule(el, Tr);
+        if (ir == NULL)
+        {
+            ir = &mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder());
+        }
+
+        double w, LAMBDA, MU, NU, E;
+
+        C.SetSize(str_comp, str_comp);           // Stiffness in Voigt form
+        BGradDisp.SetSize(dim * dim, dof * dim); // Strain displacement matrix
+        Gradu.SetSize(dim * dim);
+        Egl.SetSize(str_comp);
+        Ccg.SetSize(str_comp);
+        S.SetSize(str_comp);
+        F.SetSize(dim * dim);
+        BNL.SetSize(str_comp, dof * dim);
+        elvec_input.SetSize(dof * dim);
+        elvect.SetSize(dof * dim);
+        elstrain_ave.SetSize(str_comp);
+        elstress_ave.SetSize(str_comp);
+        Id.SetSize(str_comp);
+        CcgInv.SetSize(str_comp);
+
+        C = 0.0;
+        BGradDisp = 0.0;
+        BNL = 0.0;
+        elvect = 0.0;
+        elstrain_ave = 0.0;
+        elstress_ave = 0.0;
+        Ccg = 0.0;
+        CcgInv = 0.0;
+        Id = 0.0;
+        Id(0) = 1.0;
+        Id(1) = 1.0;
+        Id(2) = 1.0;
+
+        double detEgl, detCcg, J;
+
+        int num_int_points = ir->GetNPoints();
+
+        for (int i = 0; i < num_int_points; i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+
+            el.CalcDShape(ip, dshape);
+            Tr.SetIntPoint(&ip);
+            w = ip.weight * Tr.Weight(); // Quadrature weights
+
+            if (i == 0)
+            {
+                LAMBDA = lambda->Eval(Tr, ip);
+                MU = mu->Eval(Tr, ip); // The elastic constants are evaluated at the first integration point.
+                E = (MU * (3.0 * LAMBDA + 2.0 * MU)) / (LAMBDA + MU);
+                NU = LAMBDA / (2.0 * (LAMBDA + MU));
+            } // Constant throughout element
+
+            mfem::Mult(dshape, Tr.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            // Here we want to use Voigt notation to speed up the assembly process.
+            // For this, we need the strain displacement matrix B. The element stiffness can be computed as
+            // \int_{\Omega} B^T C B. In Voigt form, the stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+            // The B matrix as 3 rows in 2D and 6 rowd in 3D.
+            switch (dim)
+            {
+            case 2:
+                if (i == 0)
+                {
+                    // switch (planeApprox)
+                    // {
+                    // case 0:
+                    // Plane strain
+                    C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
+                    C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
+                    C(2, 2) = E / (2 * (1 + NU));
+                    // break;
+
+                    // case 1:
+                    // Plane stress
+                    // C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
+                    // C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
+                    // C(2, 2) = E / (2 * (1 + NU));
+                    // break;
+                    // }
+                }
+
+                // In 2D, we have 3 unique strain components.
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    BGradDisp(0, spf) = gshape(spf, 0);       // u_{1,1}
+                    BGradDisp(1, spf + dof) = gshape(spf, 1); // u_{2,2}
+                    BGradDisp(2, spf) = gshape(spf, 1);       // u_{1,2}
+                    BGradDisp(3, spf + dof) = gshape(spf, 0); // u_{2,1}
+                }
+                break;
+
+            case 3:
+
+                // In 3D, we have 6 unique strain components.
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    BGradDisp(0, spf) = gshape(spf, 0);           // u_{1,1}
+                    BGradDisp(1, spf + dof) = gshape(spf, 1);     // u_{2,2}
+                    BGradDisp(2, spf + 2 * dof) = gshape(spf, 2); // u_{3,3}
+                    BGradDisp(3, spf) = gshape(spf, 1);           // u_{1,2}
+                    BGradDisp(4, spf) = gshape(spf, 2);           // u_{1,3}
+                    BGradDisp(5, spf + dof) = gshape(spf, 0);     // u_{2,1}
+                    BGradDisp(6, spf + dof) = gshape(spf, 2);     // u_{2,3}
+                    BGradDisp(7, spf + 2 * dof) = gshape(spf, 0); // u_{3,1}
+                    BGradDisp(8, spf + 2 * dof) = gshape(spf, 1); // u_{3,2}
+                }
+                break;
+            }
+            BGradDisp.Mult(eldofdisp, Gradu);
+            F = Gradu;
+            for (int i = 0; i < dim; i++)
+            {
+                F(i) += 1.0;
+            }
+
+            J = (F(0) * F(1) * F(2)) - (F(0) * F(6) * F(8)) - (F(3) * F(5) * F(2)) + (F(3) * F(6) * F(7)) + (F(4) * F(5) * F(8)) - (F(4) * F(6) * F(7));
+
+            switch (dim)
+            {
+            case 3:
+                // Fill green lagrange strain vec
+                Egl(0) = Gradu(0) + 0.5 * (Gradu(0) * Gradu(0) + Gradu(5) * Gradu(5) + Gradu(7) * Gradu(7));                  // E11
+                Egl(1) = Gradu(1) + 0.5 * (Gradu(1) * Gradu(1) + Gradu(3) * Gradu(3) + Gradu(8) * Gradu(8));                  // E22
+                Egl(2) = Gradu(2) + 0.5 * (Gradu(2) * Gradu(2) + Gradu(4) * Gradu(4) + Gradu(6) * Gradu(6));                  // E33
+                Egl(3) = 0.5 * (Gradu(6) + Gradu(8) + (Gradu(3) * Gradu(4)) + (Gradu(1) * Gradu(6)) + (Gradu(8) * Gradu(2))); // E23
+                Egl(4) = 0.5 * (Gradu(4) + Gradu(7) + (Gradu(0) * Gradu(4)) + (Gradu(5) * Gradu(6)) + (Gradu(7) * Gradu(2))); // E13
+                Egl(5) = 0.5 * (Gradu(3) + Gradu(5) + (Gradu(0) * Gradu(3)) + (Gradu(5) * Gradu(1)) + (Gradu(7) * Gradu(8))); // E12
+
+                Ccg = Egl;
+                Ccg *= 2.0;
+                Ccg += Id;
+
+                // Strain computed, add to strain_ave.
+                Egl(3) *= 2.0;
+                Egl(4) *= 2.0;
+                Egl(5) *= 2.0;
+
+                elstrain_ave.Add(1.0 / num_int_points, Egl);
+
+                detCcg = (Ccg(0) * Ccg(1) * Ccg(2)) - (Ccg(0) * Ccg(3) * Ccg(3)) - (Ccg(5) * Ccg(5) * Ccg(2)) + (Ccg(5) * Ccg(3) * Ccg(4)) + (Ccg(4) * Ccg(5) * Ccg(3)) - (Ccg(4) * Ccg(1) * Ccg(4));
+
+                // Stiffness properties depend on right cauchy green strain
+
+                C(0, 0) = (2.0 * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2)) * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2)) * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2))) / (detCcg * detCcg);
+                C(0, 1) = (2.0 * (Ccg(3) * Ccg(4) - Ccg(2) * Ccg(5)) * (Ccg(3) * Ccg(4) - Ccg(2) * Ccg(5)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2)) * (Ccg(4) * Ccg(4) - Ccg(0) * Ccg(2))) / (detCcg * detCcg);
+                C(0, 2) = (2.0 * (Ccg(1) * Ccg(4) - Ccg(3) * Ccg(5)) * (Ccg(1) * Ccg(4) - Ccg(3) * Ccg(5)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2)) * (Ccg(5) * Ccg(5) - Ccg(0) * Ccg(1))) / (detCcg * detCcg);
+                C(0, 3) = (2.0 * (Ccg(3) * Ccg(4) - Ccg(2) * Ccg(5)) * (Ccg(3) * Ccg(5) - Ccg(1) * Ccg(1)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2)) * (Ccg(0) * Ccg(3) - Ccg(4) * Ccg(5))) / (detCcg * detCcg);
+                C(0, 4) = -1.0 * (2.0 * (Ccg(1) * Ccg(2) - Ccg(3) * Ccg(3)) * (Ccg(1) * Ccg(4) - Ccg(3) * Ccg(5)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2)) * (Ccg(1) * Ccg(4) - Ccg(3) * Ccg(5))) / (detCcg * detCcg);
+                C(0, 5) = -1.0 * (2.0 * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2)) * (Ccg(3) * Ccg(4) - Ccg(2) * Ccg(5)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2)) * (Ccg(2) * Ccg(5) - Ccg(3) * Ccg(4))) / (detCcg * detCcg);
+
+                C(1, 1) = (2.0 * (Ccg(4) * Ccg(4) - Ccg(2) * Ccg(0)) * (Ccg(4) * Ccg(4) - Ccg(2) * Ccg(0)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(4) * Ccg(4) - Ccg(2) * Ccg(0)) * (Ccg(4) * Ccg(4) - Ccg(2) * Ccg(0))) / (detCcg * detCcg);
+                C(1, 2) = (2.0 * (Ccg(4) * Ccg(5) - Ccg(0) * Ccg(3)) * (Ccg(4) * Ccg(5) - Ccg(0) * Ccg(3)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(4) * Ccg(4) - Ccg(0) * Ccg(2)) * (Ccg(5) * Ccg(5) - Ccg(0) * Ccg(1))) / (detCcg * detCcg);
+                C(1, 3) = -1.0 * (2.0 * (Ccg(4) * Ccg(4) - Ccg(2) * Ccg(0)) * (Ccg(4) * Ccg(5) - Ccg(0) * Ccg(3)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(4) * Ccg(4) - Ccg(0) * Ccg(2)) * (Ccg(0) * Ccg(3) - Ccg(4) * Ccg(5))) / (detCcg * detCcg);
+                C(1, 4) = (2.0 * (Ccg(3) * Ccg(4) - Ccg(2) * Ccg(5)) * (Ccg(4) * Ccg(5) - Ccg(0) * Ccg(3)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(4) * Ccg(4) - Ccg(0) * Ccg(2)) * (Ccg(1) * Ccg(4) - Ccg(3) * Ccg(5))) / (detCcg * detCcg);
+                C(1, 5) = -1.0 * (2.0 * (Ccg(4) * Ccg(4) - Ccg(2) * Ccg(0)) * (Ccg(3) * Ccg(4) - Ccg(2) * Ccg(5)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(4) * Ccg(4) - Ccg(0) * Ccg(2)) * (Ccg(2) * Ccg(5) - Ccg(3) * Ccg(4))) / (detCcg * detCcg);
+
+                C(2, 2) = (2.0 * (Ccg(5) * Ccg(5) - Ccg(0) * Ccg(1)) * (Ccg(5) * Ccg(5) - Ccg(0) * Ccg(1)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(4) * Ccg(4) - Ccg(0) * Ccg(2)) * (Ccg(5) * Ccg(5) - Ccg(0) * Ccg(1))) / (detCcg * detCcg);
+                C(2, 3) = -1.0 * (2.0 * (Ccg(4) * Ccg(5) - Ccg(0) * Ccg(3)) * (Ccg(5) * Ccg(5) - Ccg(0) * Ccg(1)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(4) * Ccg(4) - Ccg(0) * Ccg(2)) * (Ccg(0) * Ccg(3) - Ccg(4) * Ccg(5))) / (detCcg * detCcg);
+                C(2, 4) = -1.0 * (2.0 * (Ccg(3) * Ccg(5) - Ccg(1) * Ccg(4)) * (Ccg(5) * Ccg(5) - Ccg(0) * Ccg(1)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(4) * Ccg(4) - Ccg(0) * Ccg(2)) * (Ccg(1) * Ccg(4) - Ccg(3) * Ccg(5))) / (detCcg * detCcg);
+                C(2, 5) = (2.0 * (Ccg(3) * Ccg(5) - Ccg(1) * Ccg(4)) * (Ccg(4) * Ccg(5) - Ccg(0) * Ccg(3)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(4) * Ccg(4) - Ccg(0) * Ccg(2)) * (Ccg(2) * Ccg(5) - Ccg(3) * Ccg(4))) / (detCcg * detCcg);
+
+                C(3, 3) = (2.0 * (Ccg(4) * Ccg(4) - Ccg(0) * Ccg(2)) * (Ccg(5) * Ccg(5) - Ccg(0) * Ccg(1)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(0) * Ccg(3) - Ccg(4) * Ccg(5)) * (Ccg(0) * Ccg(3) - Ccg(4) * Ccg(5))) / (detCcg * detCcg);
+                C(3, 4) = (2.0 * (Ccg(2) * Ccg(5) - Ccg(3) * Ccg(4)) * (Ccg(5) * Ccg(5) - Ccg(0) * Ccg(1)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(1) * Ccg(4) - Ccg(3) * Ccg(5)) * (Ccg(0) * Ccg(3) - Ccg(4) * Ccg(5))) / (detCcg * detCcg);
+                C(3, 5) = -1.0 * (2.0 * (Ccg(2) * Ccg(5) - Ccg(3) * Ccg(4)) * (Ccg(4) * Ccg(5) - Ccg(0) * Ccg(3)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(3) * Ccg(4) - Ccg(2) * Ccg(5)) * (Ccg(4) * Ccg(5) - Ccg(0) * Ccg(3))) / (detCcg * detCcg);
+
+                C(4, 4) = (2.0 * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2)) * (Ccg(5) * Ccg(5) - Ccg(0) * Ccg(1)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(1) * Ccg(4) - Ccg(3) * Ccg(5)) * (Ccg(1) * Ccg(4) - Ccg(3) * Ccg(5))) / (detCcg * detCcg);
+                C(4, 5) = -1.0 * (2.0 * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2)) * (Ccg(4) * Ccg(5) - Ccg(0) * Ccg(3)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(3) * Ccg(4) - Ccg(2) * Ccg(5)) * (Ccg(3) * Ccg(5) - Ccg(1) * Ccg(4))) / (detCcg * detCcg);
+
+                C(5, 5) = (2.0 * (Ccg(3) * Ccg(3) - Ccg(1) * Ccg(2)) * (Ccg(4) * Ccg(4) - Ccg(0) * Ccg(2)) * (MU - LAMBDA * std::log(J))) / (detCcg * detCcg) + (0.5 * LAMBDA * (Ccg(3) * Ccg(4) - Ccg(2) * Ccg(5)) * (Ccg(3) * Ccg(4) - Ccg(2) * Ccg(5))) / (detCcg * detCcg);
+
+                // C is symmetric
+                C(1, 0) = C(0, 1);
+                C(2, 0) = C(0, 2);
+                C(2, 1) = C(1, 2);
+                C(3, 0) = C(0, 3);
+                C(3, 1) = C(1, 3);
+                C(3, 2) = C(2, 3);
+                C(4, 0) = C(0, 4);
+                C(4, 1) = C(1, 4);
+                C(4, 2) = C(2, 4);
+                C(4, 3) = C(3, 4);
+                C(5, 0) = C(0, 5);
+                C(5, 1) = C(1, 5);
+                C(5, 2) = C(2, 5);
+                C(5, 3) = C(3, 5);
+                C(5, 4) = C(4, 5);
+
+                CcgInv(0) = (Ccg(1) * Ccg(2)) - (Ccg(3) * Ccg(3));
+                CcgInv(1) = (Ccg(0) * Ccg(2)) - (Ccg(4) * Ccg(4));
+                CcgInv(2) = (Ccg(0) * Ccg(1)) - (Ccg(5) * Ccg(5));
+                CcgInv(3) = (Ccg(4) * Ccg(5)) - (Ccg(0) * Ccg(3));
+                CcgInv(4) = (Ccg(3) * Ccg(5)) - (Ccg(1) * Ccg(4));
+                CcgInv(5) = (Ccg(3) * Ccg(4)) - (Ccg(2) * Ccg(5));
+
+                CcgInv /= detCcg;
+
+                S = Id;
+                S -= CcgInv;
+                S *= MU;
+                S.Add(LAMBDA * std::log(J), CcgInv);
+
+                // Stress computed, add to stress_ave.
+                elstress_ave.Add(1.0 / num_int_points, S);
+
+                // Fill nonlinear strain displacement matrix B
+                // In 3D, we have 6 unique strain components.
+                // F: F11, F22, F33, F12, F13, F21, F23, F31, F32
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    // E11
+                    BNL(0, spf) = gshape(spf, 0) * F(0);
+                    BNL(0, spf + dof) = gshape(spf, 0) * F(5);
+                    BNL(0, spf + 2 * dof) = gshape(spf, 0) * F(7);
+
+                    // E22
+                    BNL(1, spf) = gshape(spf, 1) * F(3);
+                    BNL(1, spf + dof) = gshape(spf, 1) * F(1);
+                    BNL(1, spf + 2 * dof) = gshape(spf, 1) * F(8);
+
+                    // E33
+                    BNL(2, spf) = gshape(spf, 2) * F(4);
+                    BNL(2, spf + dof) = gshape(spf, 2) * F(6);
+                    BNL(2, spf + 2 * dof) = gshape(spf, 2) * F(2);
+
+                    // Need to check all of this
+                    // E23
+                    // BNL(3, spf) = 0.0;
+                    BNL(3, spf + dof) = (gshape(spf, 1) * F(6)) + (gshape(spf, 2) * F(1));
+                    BNL(3, spf + 2 * dof) = (gshape(spf, 1) * F(2)) + (gshape(spf, 2) * F(8));
+
+                    // E13
+                    BNL(4, spf) = (gshape(spf, 0) * F(4)) + (gshape(spf, 2) * F(0));
+                    // BNL(4, spf + dof) = 0.0;
+                    BNL(4, spf + 2 * dof) = (gshape(spf, 0) * F(2)) + (gshape(spf, 2) * F(7));
+
+                    // E12
+                    BNL(5, spf) = (gshape(spf, 0) * F(3)) + (gshape(spf, 1) * F(0));
+                    BNL(5, spf + dof) = (gshape(spf, 0) * F(1)) + (gshape(spf, 1) * F(5));
+                    // BNL(5, spf + 2 * dof) = 0.0;
+                }
+                // Assume BNL is assembled correctly. Proceed.
+                break;
+            }
+
+            // Now compute the quantity S : \bar{E} Using Voigt notation, of course...
+            // This is equivalent to.
+
+            // cout << "C Norm: " << C.FNorm() << endl;
+            // cout << "S Norm: " << S.Norml2() << endl;
+
+            BNL.MultTranspose(S, elvec_input);
+
+            // cout << "elvec_input norm: " << elvec_input.Norml2() << endl;
+
+            add(elvect, -1.0 * w, elvec_input, elvect); // needs to be a negative contribution
+
+            // Add strain_ave and stress_ave to strain_gf and stress_gf in appropriate locations. Element number is known.
+            for (int comp = 0; comp < str_comp; comp++)
+            {
+                (*strain_gf)(elnum + (numels * comp)) = elstrain_ave(comp);
+                (*stress_gf)(elnum + (numels * comp)) = elstress_ave(comp);
+            }
+        }
+    }
 }

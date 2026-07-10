@@ -143,8 +143,7 @@ namespace mfemplus
         }
 
         // Construct a mass integrator with coefficient q
-        GLMassIntegrator(mfem::Coefficient &q, const mfem::IntegrationRule *ir)
-            : GLMassIntegrator(ir)
+        GLMassIntegrator(mfem::Coefficient &q, const mfem::IntegrationRule *ir = nullptr)
         {
             Q = &q;
         }
@@ -343,6 +342,29 @@ namespace mfemplus
 
     public:
         IsotropicCorotationalTangentStiffnessIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &disp_gridfunc, mfem::ParFiniteElementSpace *disp_fespace) : young_mod(&e), poisson_ratio(&nu), disp_gf(&disp_gridfunc), disp_fes(disp_fespace) {};
+
+        void AssembleElementMatrix(const mfem::FiniteElement &el,
+                                   mfem::ElementTransformation &Tr,
+                                   mfem::DenseMatrix &elmat) override;
+    };
+
+    class CompressibleNeoHookeanTangentStiffnessIntegrator : public mfem::BilinearFormIntegrator
+    {
+
+    protected:
+        mfem::Coefficient *lambda, *mu;
+        mfem::GridFunction *disp_gf;
+        mfem::FiniteElementSpace *disp_fes;
+        mfem::Array<int> eldofs;
+        mfem::Vector eldofdisp;
+        mfem::Vector CBu, Bu, F, Egl, Ccg, CcgInv, Gradu, S, Id;
+        mfem::DenseMatrix C, BGradDisp, BNL, Sigma, elmat_input_1, elmat_input_2, elmat_input_1_temp, elmat_input_2_temp; // Stiffness in Voigt form, Bmatrix (for displacement gradients);
+
+        mfem::Vector shape;
+        mfem::DenseMatrix dshape, gshape;
+
+    public:
+        CompressibleNeoHookeanTangentStiffnessIntegrator(mfem::Coefficient &lambda_val, mfem::Coefficient &mu_val, mfem::GridFunction &disp_gridfunc, mfem::ParFiniteElementSpace *disp_fespace) : lambda(&lambda_val), mu(&mu_val), disp_gf(&disp_gridfunc), disp_fes(disp_fespace) {};
 
         void AssembleElementMatrix(const mfem::FiniteElement &el,
                                    mfem::ElementTransformation &Tr,

@@ -218,5 +218,39 @@ namespace mfemplus
 
         using mfem::LinearFormIntegrator::AssembleRHSElementVect;
     };
+
+    class CompressibleNeoHookeanInternalForceLFIntegrator : public mfem::LinearFormIntegrator
+    {
+    protected:
+        mfem::Coefficient *lambda, *mu;
+        mfem::DenseMatrix C, BGradDisp, BNL; // stiffness, strain-displacement
+        mfem::Vector Elg, F;                 // Green lagrange strain
+        mfem::DenseMatrix dshape, gshape;
+        mfem::Vector Gradu, Egl, EglInv, Ccg, CcgInv, S, Id;
+        mfem::GridFunction *disp_gf, *strain_gf, *stress_gf; // Green-Lagrange strain and 2nd Piola-Kirchoff stress.
+        mfem::FiniteElementSpace *disp_fes, *L2_fes;         // H1 fes for displacement and L2 fes for strain and stress.
+        mfem::Array<int> eldofs;                             // scalar for damage
+        mfem::Vector eldofdisp, elvec_input, elstrain_ave, elstress_ave;
+
+    public:
+        // Need to modify the constructors...
+
+        /// Constructs a domain integrator with a given Coefficient
+
+        CompressibleNeoHookeanInternalForceLFIntegrator(mfem::Coefficient &lambda_val, mfem::Coefficient &mu_val, mfem::GridFunction &disp_gridfunc, mfem::GridFunction &strain_gridfunc, mfem::GridFunction &stress_gridfunc, mfem::FiniteElementSpace *disp_fespace)
+            : lambda(&lambda_val), mu(&mu_val), disp_gf(&disp_gridfunc), strain_gf(&strain_gridfunc), stress_gf(&stress_gridfunc), disp_fes(disp_fespace) {};
+        // Fill in the average strain and stress for each element into the strain and stress gf;
+
+        void AssembleDevice(const mfem::FiniteElementSpace &fes, const mfem::Array<int> &markers, mfem::Vector &b) override {};
+
+        /** Given a particular Finite Element and a transformation (Tr)
+            computes the element right hand side element vector, elvect. **/
+        void AssembleRHSElementVect(const mfem::FiniteElement &el, mfem::ElementTransformation &Tr, mfem::Vector &elvect) override;
+
+        virtual void AssembleRHSElementVect(const mfem::FiniteElement &el, mfem::FaceElementTransformations &Tr, mfem::Vector &elvect) override {};
+
+        using mfem::LinearFormIntegrator::AssembleRHSElementVect;
+    };
+
 }
 #endif
