@@ -148,7 +148,7 @@ namespace mfemplus
     {
     protected:
         mfem::Coefficient *pressure;
-        // mfem::Coefficient *Ey_coeff, *nu_coeff;
+        mfem::Coefficient *young_mod, *poisson_ratio;
         mfem::DenseMatrix B;        // stiffness, strain-displacement
         mfem::Vector body_pressure; // volumetric pressure
         mfem::DenseMatrix dshape, gshape;
@@ -165,8 +165,8 @@ namespace mfemplus
 
         /// Constructs a domain integrator with a given Coefficient
 
-        PressureBodyForceDamageLFIntegrator(mfem::Coefficient &pressure_coeff, mfem::real_t k_eps, mfem::GridFunction &damage_gridfunc, mfem::FiniteElementSpace *damage_fespace, int plane_approximation)
-            : pressure(&pressure_coeff), k_epsilon(k_eps), damage_gf(&damage_gridfunc), damage_fes(damage_fespace), planeApprox(plane_approximation) {};
+        PressureBodyForceDamageLFIntegrator(mfem::Coefficient &pressure_coeff, mfem::Coefficient &e, mfem::Coefficient &nu, mfem::real_t k_eps, mfem::GridFunction &damage_gridfunc, mfem::FiniteElementSpace *damage_fespace, int plane_approximation)
+            : pressure(&pressure_coeff), young_mod(&e), poisson_ratio(&nu), k_epsilon(k_eps), damage_gf(&damage_gridfunc), damage_fes(damage_fespace), planeApprox(plane_approximation) {};
 
         void AssembleDevice(const mfem::FiniteElementSpace &fes, const mfem::Array<int> &markers, mfem::Vector &b) override {};
 

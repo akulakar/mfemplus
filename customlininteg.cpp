@@ -186,7 +186,6 @@ namespace mfemplus
             pressure_energy = mfem::InnerProduct(body_pressure, Bu); // This is twice the linear pressure energy.
             // }
             total_energy = strain_energy - 2.0 * pressure_energy + 2.0 * quadratic_pressure_energy; // This is twice the total energy.
-            ;
 
             // Gershgorin circle theorem for stress. Alternatively, use history variable for strain energy.
             // if (dim == 2)
@@ -626,8 +625,8 @@ namespace mfemplus
             }
             double w, NU, E;
 
-            double damage_value, degradation_constant;
-            double pressure_coeff;
+            double damage_value(0.0), degradation_constant(0.0);
+            double pressure_coeff(0.0);
 
             for (int i = 0; i < ir->GetNPoints(); i++)
             {
@@ -643,6 +642,12 @@ namespace mfemplus
                 degradation_constant = ((1.0 - damage_value) * (1.0 - damage_value)) + k_epsilon; // (1 - d)^{2} + k_{\epsilon}
 
                 pressure_coeff = pressure->Eval(Tr, ip);
+
+                if (i == 0)
+                {
+                    NU = poisson_ratio->Eval(Tr, ip);
+                    E = young_mod->Eval(Tr, ip); // The elastic constants are evaluated at the first integration point.
+                } // Constant throughout element
 
                 mfem::Mult(dshape, Tr.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
 
