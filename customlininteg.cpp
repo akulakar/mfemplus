@@ -62,7 +62,7 @@ namespace mfemplus
         elvect = 0.0;
 
         double lambda1, lambda2, lambda3;
-        double strain_energy(0.0), pressure_energy(0.0), total_energy(0.0);
+        double strain_energy(0.0), pressure_energy(0.0), quadratic_pressure_energy(0.0), total_energy(0.0);
         double pressure_coeff(0.0);
 
         for (int i = 0; i < ir->GetNPoints(); i++)
@@ -97,8 +97,17 @@ namespace mfemplus
                 if (volumetric_pressure != nullptr)
                 {
                     pressure_coeff = volumetric_pressure->Eval(Tr, ip);
-                    body_pressure(0) = pressure_coeff;
-                    body_pressure(1) = pressure_coeff;
+
+                    switch (planeApprox)
+                    {
+                    case 1:
+                        // Plane stress
+                        body_pressure(0) = pressure_coeff * (2.0 - (1.0 / (1.0 - NU)));
+                        body_pressure(1) = pressure_coeff * (2.0 - (1.0 / (1.0 - NU)));
+
+                        quadratic_pressure_energy = (pressure_coeff * pressure_coeff * pow(1.0 - 2.0 * NU, 2.0)) / (E * (1.0 - NU));
+                        break;
+                    }
                 }
 
                 if (i == 0)
@@ -138,6 +147,8 @@ namespace mfemplus
                     body_pressure(0) = pressure_coeff;
                     body_pressure(1) = pressure_coeff;
                     body_pressure(2) = pressure_coeff;
+
+                    quadratic_pressure_energy = (3.0 * pressure_coeff * pressure_coeff) / ((2.0 * E) / (1.0 - 2.0 * NU));
                 }
 
                 if (i == 0)
@@ -168,13 +179,14 @@ namespace mfemplus
             mfem::Mult(C, B, CB);    // CB is 6 x (dof * dim)
             CB.Mult(eldofdisp, CBu); // CBu has dimension strain_comps. This is the stress vector.
             // For tensile loading, no need for Gershgorin check.
-            B.Mult(eldofdisp, Bu);                       // Bu has dimension strain_comps. This is the strain vector.
-            strain_energy = mfem::InnerProduct(CBu, Bu); // This is twice the strain energy
-            if (volumetric_pressure != nullptr)
-            {
-                pressure_energy = mfem::InnerProduct(body_pressure, Bu);
-            }
-            total_energy = strain_energy - 2 * pressure_energy;
+            B.Mult(eldofdisp, Bu);                                   // Bu has dimension strain_comps. This is the strain vector.
+            strain_energy = mfem::InnerProduct(CBu, Bu);             // This is twice the strain energy
+                                                                     // if (volumetric_pressure != nullptr)
+                                                                     // {
+            pressure_energy = mfem::InnerProduct(body_pressure, Bu); // This is twice the linear pressure energy.
+            // }
+            total_energy = strain_energy - 2.0 * pressure_energy + 2.0 * quadratic_pressure_energy; // This is twice the total energy.
+            ;
 
             // Gershgorin circle theorem for stress. Alternatively, use history variable for strain energy.
             // if (dim == 2)
@@ -523,8 +535,17 @@ namespace mfemplus
                 {
                 case 2:
                     // volumetric pressure
-                    body_stress(0) = pressure_coeff;
-                    body_stress(1) = pressure_coeff;
+                    // body_stress(0) = pressure_coeff;
+                    // body_stress(1) = pressure_coeff;
+
+                    // switch (planeApprox)
+                    // {
+                    // case 1:
+                    // Plane stress
+                    body_stress(0) = pressure_coeff * (2.0 - (1.0 / (1.0 - NU)));
+                    body_stress(1) = pressure_coeff * (2.0 - (1.0 / (1.0 - NU)));
+                    //     break;
+                    // }
 
                     // In 2D, we have 3 unique strain components.
                     for (int spf = 0; spf < dof; spf++)
@@ -582,11 +603,11 @@ namespace mfemplus
 
             elvect.SetSize(dof * dim);
             B.SetSize(str_comp, dof * dim); // Strain displacement matrix
-            body_stress.SetSize(str_comp);
+            body_pressure.SetSize(str_comp);
             elvec_input.SetSize(dof * dim);
             elvect = 0.0;
             B = 0.0;
-            body_stress = 0.0;
+            body_pressure = 0.0;
 
             damage_fes->GetElementDofs(elnum, eldofs);
 
@@ -634,24 +655,30 @@ namespace mfemplus
                 {
                 case 2:
                     // volumetric pressure. 2 non-zero components
-                    body_stress(0) = pressure_coeff;
-                    body_stress(1) = pressure_coeff;
+                    switch (planeApprox)
+                    {
+                    case 1:
+                        // plane stress
+                        body_pressure(0) = pressure_coeff * (2.0 - (1.0 / (1.0 - NU)));
+                        body_pressure(1) = pressure_coeff * (2.0 - (1.0 / (1.0 - NU)));
+                        break;
+                    }
 
                     // In 2D, we have 3 unique strain components.
                     for (int spf = 0; spf < dof; spf++)
                     {
                         B(0, spf) = gshape(spf, 0);
                         B(1, spf + dof) = gshape(spf, 1);
-                        // B(2, spf) = gshape(spf, 1);
-                        // B(2, spf + dof) = gshape(spf, 0);
+                        B(2, spf) = gshape(spf, 1);
+                        B(2, spf + dof) = gshape(spf, 0);
                     }
                     break;
                 case 3:
 
                     // volumetric pressure. 3 non zero components
-                    body_stress(0) = pressure_coeff;
-                    body_stress(1) = pressure_coeff;
-                    body_stress(2) = pressure_coeff;
+                    body_pressure(0) = pressure_coeff;
+                    body_pressure(1) = pressure_coeff;
+                    body_pressure(2) = pressure_coeff;
 
                     // In 3D, we have 6 unique strain components.
                     for (int spf = 0; spf < dof; spf++)
@@ -659,16 +686,16 @@ namespace mfemplus
                         B(0, spf) = gshape(spf, 0);
                         B(1, spf + dof) = gshape(spf, 1);
                         B(2, spf + 2 * dof) = gshape(spf, 2);
-                        // B(3, spf + dof) = gshape(spf, 2);
-                        // B(3, spf + 2 * dof) = gshape(spf, 1);
-                        // B(4, spf) = gshape(spf, 2);
-                        // B(4, spf + 2 * dof) = gshape(spf, 0);
-                        // B(5, spf) = gshape(spf, 1);
-                        // B(5, spf + dof) = gshape(spf, 0);
+                        B(3, spf + dof) = gshape(spf, 2);
+                        B(3, spf + 2 * dof) = gshape(spf, 1);
+                        B(4, spf) = gshape(spf, 2);
+                        B(4, spf + 2 * dof) = gshape(spf, 0);
+                        B(5, spf) = gshape(spf, 1);
+                        B(5, spf + dof) = gshape(spf, 0);
                     }
                     break;
                 }
-                B.MultTranspose(body_stress, elvec_input);
+                B.MultTranspose(body_pressure, elvec_input);
                 add(elvect, w * degradation_constant, elvec_input, elvect);
             }
         }

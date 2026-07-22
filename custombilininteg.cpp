@@ -471,7 +471,11 @@ namespace mfemplus
         }
     }
 
-    // Fracture integrators
+    // -------------------------------------------------------------------------------------------------------------------------
+    // -------------------------------------------------------------------------------------------------------------------------
+    // Variational fracture integrators
+    // -------------------------------------------------------------------------------------------------------------------------
+    // -------------------------------------------------------------------------------------------------------------------------
 
     void IsotropicElasticityDamageIntegrator::AssembleElementMatrix(
         const mfem::FiniteElement &el, mfem::ElementTransformation &Trans, mfem::DenseMatrix &elmat)
@@ -554,15 +558,15 @@ namespace mfemplus
                     {
                     case 0:
                         // Plane strain
-                        C(0, 0) = C(1, 1) = E * (1 - NU) / ((1 + NU) * (1 - 2 * NU));
-                        C(0, 1) = C(1, 0) = E * NU / ((1 + NU) * (1 - 2 * NU));
-                        C(2, 2) = E / (2 * (1 + NU));
+                        C(0, 0) = C(1, 1) = E * (1.0 - NU) / ((1.0 + NU) * (1.0 - 2.0 * NU));
+                        C(0, 1) = C(1, 0) = E * NU / ((1.0 + NU) * (1.0 - 2.0 * NU));
+                        C(2, 2) = E / (2.0 * (1.0 + NU));
                         break;
                     case 1:
                         // Plane stress
-                        C(0, 0) = C(1, 1) = (E / (1 - pow(NU, 2)));
-                        C(0, 1) = C(1, 0) = (E * NU / (1 - pow(NU, 2)));
-                        C(2, 2) = E / (2 * (1 + NU));
+                        C(0, 0) = C(1, 1) = (E / (1.0 - pow(NU, 2)));
+                        C(0, 1) = C(1, 0) = (E * NU / (1.0 - pow(NU, 2)));
+                        C(2, 2) = E / (2.0 * (1.0 + NU));
                         break;
                     }
                 }
@@ -654,7 +658,7 @@ namespace mfemplus
         body_pressure = 0.0;
 
         double lambda1(0.0), lambda2(0.0), lambda3(0.0);
-        double strain_energy(0.0), pressure_coeff(0.0), pressure_energy(0.0), total_energy(0.0);
+        double strain_energy(0.0), pressure_coeff(0.0), pressure_energy(0.0), quadratic_pressure_energy(0.0), total_energy(0.0);
 
         for (int i = 0; i < ir->GetNPoints(); i++)
         {
@@ -686,8 +690,18 @@ namespace mfemplus
                 if (volumetric_pressure != nullptr)
                 {
                     pressure_coeff = volumetric_pressure->Eval(Trans, ip);
-                    body_pressure(0) = pressure_coeff;
-                    body_pressure(1) = pressure_coeff;
+
+                    // Modify body_pressure according to plane stress or plane strain using the constants.
+                    switch (planeApprox)
+                    {
+                    case 1:
+                        // Plane stress
+                        body_pressure(0) = pressure_coeff * (2.0 - (1.0 / (1.0 - NU)));
+                        body_pressure(1) = pressure_coeff * (2.0 - (1.0 / (1.0 - NU)));
+
+                        quadratic_pressure_energy = (pressure_coeff * pressure_coeff * pow(1.0 - 2.0 * NU, 2.0)) / (E * (1.0 - NU));
+                        break;
+                    }
                 }
 
                 if (i == 0)
@@ -728,6 +742,8 @@ namespace mfemplus
                     body_pressure(0) = pressure_coeff;
                     body_pressure(1) = pressure_coeff;
                     body_pressure(2) = pressure_coeff;
+
+                    quadratic_pressure_energy = (3.0 * pressure_coeff * pressure_coeff) / ((2.0 * E) / (1.0 - 2.0 * NU));
                 }
 
                 if (i == 0)
@@ -759,10 +775,10 @@ namespace mfemplus
             CB.Mult(eldofdisp, CBu); // CBu has dimension strain_comps. This is the stress vector.
             // For tensile loading, no need for Gershgorin check.
 
-            B.Mult(eldofdisp, Bu);                       // Bu has dimension strain_comps. This is the strain vector.
-            strain_energy = mfem::InnerProduct(CBu, Bu); // This is twice the strain energy
-            pressure_energy = mfem::InnerProduct(body_pressure, Bu);
-            total_energy = strain_energy - 2 * pressure_energy;
+            B.Mult(eldofdisp, Bu);                                                                  // Bu has dimension strain_comps. This is the strain vector.
+            strain_energy = mfem::InnerProduct(CBu, Bu);                                            // This is twice the strain energy
+            pressure_energy = mfem::InnerProduct(body_pressure, Bu);                                // This is twice the linear pressure energy
+            total_energy = strain_energy - 2.0 * pressure_energy + 2.0 * quadratic_pressure_energy; // This is twice the total energy
 
             // // Gershgorin circle theorem for stress. Alternatively, use history variable for strain energy.
             // if (dim == 2)
