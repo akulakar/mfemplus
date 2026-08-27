@@ -1195,11 +1195,11 @@ namespace mfemplus
             add(elvect, -1.0 * w, elvec_input, elvect); // needs to be a negative contribution
 
             // Add strain_ave and stress_ave to strain_gf and stress_gf in appropriate locations. Element number is known.
-            for (int comp = 0; comp < str_comp; comp++)
-            {
-                (*strain_gf)(elnum + (numels * comp)) = elstrain_ave(comp);
-                (*stress_gf)(elnum + (numels * comp)) = elstress_ave(comp);
-            }
+            // for (int comp = 0; comp < str_comp; comp++)
+            // {
+            //     (*strain_gf)(elnum + (numels * comp)) = elstrain_ave(comp);
+            //     (*stress_gf)(elnum + (numels * comp)) = elstress_ave(comp);
+            // }
         }
     }
 }

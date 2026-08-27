@@ -10,5 +10,6 @@
 #include "computequantities.hpp"
 #include "custombilininteg.hpp"
 #include "customlininteg.hpp"
+#include "customhyperbolic.hpp"
 
 #endif
