@@ -46,6 +46,35 @@ namespace mfemplus
         using mfem::LinearFormIntegrator::AssembleRHSElementVect;
     };
 
+    class AnisotropicElasticityDamageLFIntegrator : public mfem::LinearFormIntegrator
+    {
+    protected:
+        mfem::MatrixCoefficient *stiffness;
+        mfem::Vector shape;
+        mfem::Vector eldofdisp, eldofdamage;
+        mfem::Array<int> eldofs;
+        mfem::GridFunction *disp_gf;
+        mfem::GridFunction *damage_gf;
+        mfem::FiniteElementSpace *disp_fes;
+        mfem::DenseMatrix C, B, CB; // stiffness, strain-displacement, Stiffness times strain-displacement in Voigt form
+        mfem::Vector CBu, Bu;
+        mfem::DenseMatrix dshape, gshape;
+
+    public:
+        /// Constructs a domain integrator with a given Coefficient
+        AnisotropicElasticityDamageLFIntegrator(mfem::MatrixCoefficient &CMat, mfem::GridFunction &disp, mfem::GridFunction &damage, mfem::FiniteElementSpace *disp_fespace) : stiffness(&CMat), disp_gf(&disp), damage_gf(&damage), disp_fes(disp_fespace) {};
+
+        // void AssembleDevice(const mfem::FiniteElementSpace &fes, const mfem::Array<int> &markers, mfem::Vector &b) override {};
+
+        /** Given a particular Finite Element and a transformation (Tr)
+            computes the element right hand side element vector, elvect. **/
+        void AssembleRHSElementVect(const mfem::FiniteElement &el, mfem::ElementTransformation &Tr, mfem::Vector &elvect) override;
+
+        // virtual void AssembleRHSElementVect(const mfem::FiniteElement &el, mfem::FaceElementTransformations &Tr, mfem::Vector &elvect) override {};
+
+        // using mfem::LinearFormIntegrator::AssembleRHSElementVect;
+    };
+
     class FractureHistoryVariableLFIntegrator : public mfem::LinearFormIntegrator
     {
     protected:

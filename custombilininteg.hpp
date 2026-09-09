@@ -219,6 +219,7 @@ namespace mfemplus
     // Integrators for variational fracture.
     //------------------------------------------------------------------------------------------------------------
     //------------------------------------------------------------------------------------------------------------
+
     /** Integrator for variational fracture strain energy term using general stiffness tensor, specifying Young's modulus E and Poisson's ratio nu, and multiplied with the degradation damage function (1 - d^{2}) + k_{\epsilon}.
        $$
          a(u,v) =  ((1 - d)^{2} + k_{\epsilon})*(\mathrm{C}_{ijkl} u_{k,l} v_{i,j})
@@ -241,6 +242,29 @@ namespace mfemplus
 
     public:
         IsotropicElasticityDamageIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::real_t k_eps, mfem::GridFunction &damage_gridfunc, mfem::FiniteElementSpace *damage_fespace, int plane_approximation = 0) : young_mod(&e), poisson_ratio(&nu), k_epsilon(k_eps), damage_gf(&damage_gridfunc), damage_fes(damage_fespace), planeApprox(plane_approximation) {};
+
+        void AssembleElementMatrix(const mfem::FiniteElement &el,
+                                   mfem::ElementTransformation &Tr,
+                                   mfem::DenseMatrix &elmat) override;
+    };
+
+    // For anisotropic (linear elastic) material models.
+    class AnisotropicElasticityDamageIntegrator : public mfem::BilinearFormIntegrator
+    {
+
+    protected:
+        mfem::MatrixCoefficient *stiffness;
+        mfem::real_t k_epsilon;
+        mfem::GridFunction *damage_gf;
+        mfem::FiniteElementSpace *damage_fes;
+        mfem::Array<int> eldofs; // scalar for damage
+        mfem::Vector eldofdamage;
+        mfem::DenseMatrix C, B, CB, elmat_input; // Stiffness in Voigt form
+        mfem::Vector shape;
+        mfem::DenseMatrix dshape, gshape;
+
+    public:
+        AnisotropicElasticityDamageIntegrator(mfem::MatrixCoefficient &CMat, mfem::real_t k_eps, mfem::GridFunction &damage_gridfunc, mfem::FiniteElementSpace *damage_fespace) : stiffness(&CMat), k_epsilon(k_eps), damage_gf(&damage_gridfunc), damage_fes(damage_fespace) {};
 
         void AssembleElementMatrix(const mfem::FiniteElement &el,
                                    mfem::ElementTransformation &Tr,
@@ -274,6 +298,32 @@ namespace mfemplus
 
     public:
         IsotropicStrainEnergyDamageIntegrator(mfem::Coefficient &e, mfem::Coefficient &nu, mfem::GridFunction &disp_gridfunc, mfem::FiniteElementSpace *disp_fespace, int plane_approximation = 0, mfem::Coefficient *vol_press = nullptr) : young_mod(&e), poisson_ratio(&nu), disp_gf(&disp_gridfunc), disp_fes(disp_fespace), planeApprox(plane_approximation), volumetric_pressure(vol_press) {};
+
+        void AssembleElementMatrix(const mfem::FiniteElement &el,
+                                   mfem::ElementTransformation &Tr,
+                                   mfem::DenseMatrix &elmat) override;
+    };
+
+    class AnisotropicStrainEnergyDamageIntegrator : public mfem::BilinearFormIntegrator
+    {
+
+    protected:
+        mfem::MatrixCoefficient *stiffness;
+        mfem::GridFunction *disp_gf;
+        mfem::FiniteElementSpace *disp_fes;
+        mfem::Array<int> eldofs;
+        mfem::Vector eldofdamage;
+        mfem::Vector eldofdisp;
+        mfem::Vector CBu, Bu;
+        mfem::DenseMatrix C, B, CB, elmat_input; // Stiffness in Voigt form
+
+        int planeApprox, GershgorinCheck;
+
+        mfem::Vector shape;
+        mfem::DenseMatrix dshape, gshape;
+
+    public:
+        AnisotropicStrainEnergyDamageIntegrator(mfem::MatrixCoefficient &CMat, mfem::GridFunction &disp_gridfunc, mfem::FiniteElementSpace *disp_fespace) : stiffness(&CMat), disp_gf(&disp_gridfunc), disp_fes(disp_fespace) {};
 
         void AssembleElementMatrix(const mfem::FiniteElement &el,
                                    mfem::ElementTransformation &Tr,

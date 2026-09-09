@@ -222,6 +222,155 @@ namespace mfemplus
             // add(elvect, w * viscosity_term, eldofdamage, elvect);
         }
     };
+
+    void AnisotropicElasticityDamageLFIntegrator::AssembleRHSElementVect(const mfem::FiniteElement &el, mfem::ElementTransformation &Tr, mfem::Vector &elvect)
+    {
+        int dof = el.GetDof();
+        int dim = el.GetDim();
+        int str_comp = (dim == 2) ? 3 : 6;
+        int elnum = Tr.ElementNo;
+
+        shape.SetSize(dof); // vector of size dof
+        dshape.SetSize(dof, dim);
+        gshape.SetSize(dof, dim);
+        eldofs.SetSize(dof * dim);    // vector valued for displacement
+        eldofdisp.SetSize(dof * dim); // vector valued displacement
+        eldofdamage.SetSize(dof);     // scalar valued damage
+
+        disp_fes->GetElementVDofs(elnum, eldofs);
+
+        for (int i = 0; i < eldofdisp.Size(); i++)
+        {
+            eldofdisp(i) = (*disp_gf)(eldofs[i]);
+        }
+        // Great, now we have all components of displacements at each dof.
+        // Next, construct the stiffness matrix C, compute displacement gradients, and take inner product.
+
+        // Viscosity turned off.
+        // for (int i = 0; i < eldofdisp.Size() / dim; i++)
+        // {
+        //     eldofdamage(i) = (*damage_gf)(eldofs[i]);
+        // }
+        // Great, now we have damage at each dof. Use that to compute viscosity term at each dof.
+
+        const mfem::IntegrationRule *ir = GetIntegrationRule(el, Tr);
+
+        if (ir == NULL)
+        {
+            ir = &mfem::IntRules.Get(el.GetGeomType(), 2 * el.GetOrder());
+        }
+        double w;
+
+        C.SetSize(str_comp, str_comp);   // Stiffness in Voigt form
+        B.SetSize(str_comp, dof * dim);  // Strain displacement matrix
+        CB.SetSize(str_comp, dof * dim); // Stiffness times strain displacement
+        CBu.SetSize(str_comp);
+        Bu.SetSize(str_comp);
+
+        elvect.SetSize(dof);
+
+        C = 0.0;
+        B = 0.0;
+        elvect = 0.0;
+
+        double lambda1, lambda2, lambda3;
+        double strain_energy(0.0);
+
+        for (int i = 0; i < ir->GetNPoints(); i++)
+        {
+            const mfem::IntegrationPoint &ip = ir->IntPoint(i);
+
+            el.CalcDShape(ip, dshape);
+            Tr.SetIntPoint(&ip);
+            el.CalcPhysShape(Tr, shape);
+            w = ip.weight * Tr.Weight(); // Quadrature weights
+
+            stiffness->Eval(C, Tr, ip); // The stiffness matrix is evaluated at each integration point.
+
+            // Viscosity turned off.
+            // eldofdamage *= shape;
+
+            mfem::Mult(dshape, Tr.InverseJacobian(), gshape); // Recovering the gradients of the shape functions in the physical space.
+
+            // Here we want to use Voigt notation to speed up the assembly process.
+            // For this, we need the strain displacement matrix B. The element stiffness can be computed as
+            // \int_{\Omega} B^T C B. In Voigt form, the stiffness matrix has dimensions 3 x 3 in 2D and 6 x 6 in 3D.
+            // The B matrix as 3 rows in 2D and 6 rowd in 3D.
+
+            switch (dim)
+            {
+            case 2:
+                // In 2D, we have 3 unique strain components.
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf) = gshape(spf, 1);
+                    B(2, spf + dof) = gshape(spf, 0);
+                }
+                break;
+
+            case 3:
+                // In 3D, we have 6 unique strain components.
+                for (int spf = 0; spf < dof; spf++)
+                {
+                    B(0, spf) = gshape(spf, 0);
+                    B(1, spf + dof) = gshape(spf, 1);
+                    B(2, spf + 2 * dof) = gshape(spf, 2);
+                    B(3, spf + dof) = gshape(spf, 2);
+                    B(3, spf + 2 * dof) = gshape(spf, 1);
+                    B(4, spf) = gshape(spf, 2);
+                    B(4, spf + 2 * dof) = gshape(spf, 0);
+                    B(5, spf) = gshape(spf, 1);
+                    B(5, spf + dof) = gshape(spf, 0);
+                }
+                break;
+            }
+
+            // Now compute the quantity C_{ijkl} u_{k,l} u_{i,j}. Using Voigt notation, of course...
+            // This is equivalent to.
+            mfem::Mult(C, B, CB);    // CB is 6 x (dof * dim)
+            CB.Mult(eldofdisp, CBu); // CBu has dimension strain_comps. This is the stress vector.
+            // For tensile loading, no need for Gershgorin check.
+            B.Mult(eldofdisp, Bu);                       // Bu has dimension strain_comps. This is the strain vector.
+            strain_energy = mfem::InnerProduct(CBu, Bu); // This is twice the strain energy
+
+            // Gershgorin circle theorem for stress. Alternatively, use history variable for strain energy.
+            // if (dim == 2)
+            // {
+            //     // In 2D lambda min is lambda1.
+            //     lambda1 = (CBu(0) - pressure_coeff + CBu(1) - pressure_coeff) / 2.0 - std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
+            //     lambda2 = (CBu(0) - pressure_coeff + CBu(1) - pressure_coeff) / 2.0 + std::sqrt(pow((CBu(0) - CBu(1)) / 2.0, 2.0) + pow(CBu(2), 2.0));
+            //     lambda3 = lambda1 + 1.0;
+
+            //     // lambda1 = CBu(0) - std::abs(CBu(3));
+            //     // lambda2 = CBu(1) - std::abs(CBu(3));
+            //     // lambda3 = lambda1 + lambda2; // artificially making it greater than both.
+            // }
+            // else if (dim == 3)
+            // {
+            //     lambda1 = CBu(0) - pressure_coeff - std::abs(CBu(5)) - std::abs(CBu(4)); // \lambda_{1} = \sigma_{11} - |\sigma_{12}| - |\sigma_{13}|
+            //     lambda2 = CBu(1) - pressure_coeff - std::abs(CBu(5)) - std::abs(CBu(3)); // \lambda_{2} = \sigma_{22} - |\sigma_{12}| - |\sigma_{23}|
+            //     lambda3 = CBu(2) - pressure_coeff - std::abs(CBu(4)) - std::abs(CBu(3)); // \lambda_{3} = \sigma_{33} - |\sigma_{13}| - |\sigma_{23}|
+            // }
+
+            // if (std::min({lambda1, lambda2, lambda3}) < 0)
+            // {
+            //     total_energy = 0.0;
+            // }
+            // else
+            // {
+            //     B.Mult(eldofdisp, Bu); // Bu has dimension strain_comps. This is the strain vector.
+            //     strain_energy = mfem::InnerProduct(CBu, Bu);
+            // }
+
+            // for now okay, but probably will change it to element average strain energy.
+            add(elvect, w * strain_energy, shape, elvect);
+            // Viscosity turned off.
+            // add(elvect, w * viscosity_term, eldofdamage, elvect);
+        }
+    };
+
     void FractureHistoryVariableLFIntegrator::AssembleRHSElementVect(const mfem::FiniteElement &el, mfem::ElementTransformation &Tr, mfem::Vector &elvect)
     {
 
